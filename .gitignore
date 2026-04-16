@@ -14,3 +14,4 @@ test-results
 next-env.d.ts
 /prisma/migrations/*/migration_lock.toml
 !/prisma/migrations/*/migration.sql
+tsconfig.tsbuildinfo
