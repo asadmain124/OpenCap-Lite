@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createStakeholderSchema } from "@/lib/validators";
 import { ok, created, toApiError } from "@/lib/api/response";
+import { writeAuditLog } from "@/lib/audit";
 
 export async function GET(req: NextRequest) {
   try {
@@ -21,6 +22,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = createStakeholderSchema.parse(body);
     const row = await prisma.stakeholder.create({ data });
+    await writeAuditLog({
+      companyId: row.companyId,
+      entityType: "Stakeholder",
+      entityId: row.id,
+      action: "CREATE",
+      after: row,
+    });
     return created(row);
   } catch (e) {
     return toApiError(e);
