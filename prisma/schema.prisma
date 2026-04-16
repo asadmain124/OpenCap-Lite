@@ -1,0 +1,375 @@
+// OpenCap Lite - Prisma schema
+// See PRD §7 for entity definitions and OCF alignment.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------- Enums --------------------
+
+enum StakeholderType {
+  FOUNDER
+  EMPLOYEE
+  ADVISOR
+  ANGEL
+  VC
+  ACCELERATOR
+  OTHER
+}
+
+enum SecurityType {
+  COMMON
+  PREFERRED
+  OPTION_POOL
+  WARRANT
+  LLC_UNIT
+  OTHER
+}
+
+enum HoldingStatus {
+  ACTIVE
+  CANCELLED
+  REPURCHASED
+}
+
+enum VestingFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  NONE
+}
+
+enum OptionGrantStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+enum SAFEStatus {
+  OUTSTANDING
+  CONVERTED
+  CANCELLED
+}
+
+enum NoteStatus {
+  OUTSTANDING
+  CONVERTED
+  REPAID
+  CANCELLED
+}
+
+enum InterestType {
+  SIMPLE
+  COMPOUND
+}
+
+enum BaselineMode {
+  LIVE_CAP_TABLE
+  SNAPSHOT
+}
+
+enum RoundType {
+  PRICED_ROUND
+  NEW_SAFE
+  NEW_NOTE
+  ACCELERATOR_EQUITY
+  BRIDGE
+}
+
+enum OptionPoolTopUpMode {
+  NONE
+  TO_TARGET_POST_MONEY_PERCENT
+  FIXED_SHARES
+  FIXED_PERCENT_PRE_MONEY
+}
+
+enum ConversionOrderingRule {
+  NOTES_THEN_SAFES_THEN_NEW_MONEY
+  SAFES_THEN_NOTES_THEN_NEW_MONEY
+  CONVERTIBLES_THEN_POOL_TOPUP_THEN_NEW_MONEY
+  POOL_TOPUP_THEN_CONVERTIBLES_THEN_NEW_MONEY
+  CUSTOM_SIMPLIFIED
+}
+
+enum NotesConvertUsing {
+  BEST_FOR_INVESTOR
+  CAP_ONLY
+  DISCOUNT_ONLY
+  USER_SELECTED_PER_NOTE
+}
+
+enum SafesConvertUsing {
+  BEST_FOR_INVESTOR
+  CAP_ONLY
+  DISCOUNT_ONLY
+  USER_SELECTED_PER_SAFE
+}
+
+enum NewInstrumentType {
+  NEW_SAFE
+  NEW_NOTE
+  NEW_EQUITY
+  NEW_ACCELERATOR_EQUITY
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+enum CapDenominatorMethod {
+  CURRENT_FULLY_DILUTED
+  FULLY_DILUTED_EXCLUDING_CONVERTIBLES
+  USER_OVERRIDE
+}
+
+enum PreMoneyDenominatorMethod {
+  CURRENT_FULLY_DILUTED
+  FULLY_DILUTED_EXCLUDING_CONVERTIBLES
+  USER_OVERRIDE
+}
+
+// -------------------- Models --------------------
+
+model Company {
+  id                        String   @id @default(cuid())
+  legalName                 String
+  jurisdiction              String
+  incorporationDate         DateTime?
+  authorizedCommonShares    BigInt   @default(0)
+  authorizedPreferredShares BigInt   @default(0)
+  defaultCurrency           String   @default("USD")
+  settings                  Json?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  stakeholders     Stakeholder[]
+  securityClasses  SecurityClass[]
+  holdings         EquityHolding[]
+  optionGrants     OptionGrant[]
+  safes            SAFEInstrument[]
+  notes            ConvertibleNote[]
+  scenarios        Scenario[]
+  auditLogs        AuditLog[]
+}
+
+model Stakeholder {
+  id        String           @id @default(cuid())
+  companyId String
+  type      StakeholderType
+  name      String
+  email     String?
+  notes     String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  holdings     EquityHolding[]
+  optionGrants OptionGrant[]
+  safes        SAFEInstrument[]
+  convertibleNotes ConvertibleNote[]
+
+  @@index([companyId])
+}
+
+model SecurityClass {
+  id                            String        @id @default(cuid())
+  companyId                     String
+  name                          String
+  type                          SecurityType
+  seniorityOrder                Int           @default(0)
+  authorizedShares              BigInt?
+  liquidationPreferenceMultiple Decimal?      @db.Decimal(10, 4)
+  participationRights           Boolean       @default(false)
+  reservedUngrantedShares       BigInt?       @default(0)
+  createdAt                     DateTime      @default(now())
+  updatedAt                     DateTime      @updatedAt
+
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  holdings EquityHolding[]
+
+  @@index([companyId])
+}
+
+model EquityHolding {
+  id                     String             @id @default(cuid())
+  companyId              String
+  stakeholderId          String
+  securityClassId        String
+  shareCount             BigInt
+  pricePaidPerShare      Decimal?           @db.Decimal(20, 8)
+  issueDate              DateTime
+  status                 HoldingStatus      @default(ACTIVE)
+  vestingStartDate       DateTime?
+  vestingCliffMonths     Int?
+  vestingDurationMonths  Int?
+  vestingFrequency       VestingFrequency   @default(NONE)
+  certificateNumber      String?
+  notes                  String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  stakeholder   Stakeholder   @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
+  securityClass SecurityClass @relation(fields: [securityClassId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([stakeholderId])
+}
+
+model OptionGrant {
+  id                    String            @id @default(cuid())
+  companyId             String
+  stakeholderId         String
+  optionCount           BigInt
+  exercisedCount        BigInt            @default(0)
+  cancelledCount        BigInt            @default(0)
+  strikePrice           Decimal           @db.Decimal(20, 8)
+  grantDate             DateTime
+  expirationDate        DateTime?
+  status                OptionGrantStatus @default(ACTIVE)
+  vestingStartDate      DateTime?
+  vestingCliffMonths    Int?
+  vestingDurationMonths Int?
+  vestingFrequency      VestingFrequency  @default(NONE)
+  notes                 String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([stakeholderId])
+}
+
+model SAFEInstrument {
+  id                String     @id @default(cuid())
+  companyId         String
+  stakeholderId     String
+  issueDate         DateTime
+  purchaseAmount    Decimal    @db.Decimal(20, 2)
+  valuationCap      Decimal?   @db.Decimal(20, 2)
+  discountPercent   Decimal?   @db.Decimal(10, 4)
+  mfn               Boolean    @default(false)
+  postMoney         Boolean    @default(true)
+  proRataRights     Boolean    @default(false)
+  status            SAFEStatus @default(OUTSTANDING)
+  sideLetterNotes   String?
+  currency          String     @default("USD")
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([stakeholderId])
+}
+
+model ConvertibleNote {
+  id                           String       @id @default(cuid())
+  companyId                    String
+  stakeholderId                String
+  issueDate                    DateTime
+  maturityDate                 DateTime?
+  principal                    Decimal      @db.Decimal(20, 2)
+  annualInterestRatePercent    Decimal      @default(0) @db.Decimal(10, 4)
+  interestType                 InterestType @default(SIMPLE)
+  compoundingFrequencyPerYear  Int?
+  valuationCap                 Decimal?     @db.Decimal(20, 2)
+  discountPercent              Decimal?     @db.Decimal(10, 4)
+  mfn                          Boolean      @default(false)
+  status                       NoteStatus   @default(OUTSTANDING)
+  currency                     String       @default("USD")
+  notes                        String?
+  createdAt                    DateTime     @default(now())
+  updatedAt                    DateTime     @updatedAt
+
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([stakeholderId])
+}
+
+model Scenario {
+  id            String       @id @default(cuid())
+  companyId     String
+  name          String
+  description   String?
+  baselineMode  BaselineMode @default(LIVE_CAP_TABLE)
+  snapshotJson  Json?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  company              Company                       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  roundInput           ScenarioRoundInput?
+  newInstrumentInputs  ScenarioNewInstrumentInput[]
+
+  @@index([companyId])
+}
+
+model ScenarioRoundInput {
+  id                              String                   @id @default(cuid())
+  scenarioId                      String                   @unique
+  roundType                       RoundType                @default(PRICED_ROUND)
+  preMoneyValuation               Decimal?                 @db.Decimal(20, 2)
+  newMoney                        Decimal?                 @db.Decimal(20, 2)
+  pricedRoundPricePerShareOverride Decimal?                @db.Decimal(20, 8)
+  roundCloseDate                  DateTime?
+  optionPoolTopUpMode             OptionPoolTopUpMode      @default(NONE)
+  optionPoolTargetPercent         Decimal?                 @db.Decimal(10, 4)
+  optionPoolFixedShares           BigInt?
+  optionPoolFixedPercentPreMoney  Decimal?                 @db.Decimal(10, 4)
+  capDenominatorMethod            CapDenominatorMethod     @default(CURRENT_FULLY_DILUTED)
+  capDenominatorOverride          BigInt?
+  preMoneyDenominatorMethod       PreMoneyDenominatorMethod @default(CURRENT_FULLY_DILUTED)
+  preMoneyDenominatorOverride     BigInt?
+  conversionOrderingRule          ConversionOrderingRule   @default(CONVERTIBLES_THEN_POOL_TOPUP_THEN_NEW_MONEY)
+  notesConvertUsing               NotesConvertUsing        @default(BEST_FOR_INVESTOR)
+  safesConvertUsing               SafesConvertUsing        @default(BEST_FOR_INVESTOR)
+  mfnFallback                     String?
+  includeProRata                  Boolean                  @default(false)
+  createdAt                       DateTime                 @default(now())
+  updatedAt                       DateTime                 @updatedAt
+
+  scenario Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+}
+
+model ScenarioNewInstrumentInput {
+  id         String            @id @default(cuid())
+  scenarioId String
+  type       NewInstrumentType
+  label      String
+  notesJson  Json
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  scenario Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId])
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  companyId  String
+  entityType String
+  entityId   String
+  action     AuditAction
+  beforeJson Json?
+  afterJson  Json?
+  actor      String?
+  createdAt  DateTime    @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([entityType, entityId])
+}
