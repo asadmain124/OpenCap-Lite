@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "opencap-lite/ocf/stock-class",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "name", "class_type"],
+    "properties": {
+      "id": { "type": "string" },
+      "name": { "type": "string" },
+      "class_type": {
+        "type": "string",
+        "enum": ["COMMON", "PREFERRED", "OPTION_POOL", "WARRANT", "LLC_UNIT", "OTHER"]
+      },
+      "seniority": { "type": "number" },
+      "initial_shares_authorized": { "type": "string" },
+      "liquidation_preference_multiple": { "type": "string" },
+      "participation_cap_multiple": { "type": "string" }
+    }
+  }
+}

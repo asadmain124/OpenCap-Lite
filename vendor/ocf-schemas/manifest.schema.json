@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "opencap-lite/ocf/manifest",
+  "type": "object",
+  "required": ["issuer"],
+  "properties": {
+    "file_type": { "type": "string" },
+    "ocf_version": { "type": "string" },
+    "issuer": {
+      "type": "object",
+      "required": ["id", "legal_name"],
+      "properties": {
+        "id": { "type": "string" },
+        "legal_name": { "type": "string" },
+        "country_of_formation": { "type": "string" },
+        "initial_shares_authorized": { "type": "string" }
+      }
+    }
+  }
+}
