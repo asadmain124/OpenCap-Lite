@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "opencap-lite/ocf/stakeholder",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "name", "stakeholder_type"],
+    "properties": {
+      "id": { "type": "string" },
+      "name": {
+        "type": "object",
+        "properties": {
+          "legal_name": { "type": "string" }
+        }
+      },
+      "stakeholder_type": {
+        "type": "string",
+        "enum": ["INDIVIDUAL", "INSTITUTION"]
+      },
+      "current_relationship": { "type": "string" },
+      "primary_contact": {
+        "type": "object",
+        "properties": {
+          "email_address": { "type": "string" }
+        }
+      }
+    }
+  }
+}
