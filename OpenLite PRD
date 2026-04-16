@@ -1,0 +1,713 @@
+# OpenCap Lite — Product Requirements Document
+
+**Version:** 1.0  
+**Status:** Approved for build  
+**Owner:** Asad (product + review)  
+**Builders:** Claude Code + Replit agents (no human coding)  
+**License:** MIT  
+**Last updated:** April 2026
+
+-----
+
+## 1. Executive Summary
+
+### Problem Statement
+
+Early-stage founders raising on SAFEs and convertibles model dilution in fragile Excel sheets or hit paywalls the moment they try “what happens if my cap goes to $X, I take $Y new money, and top up the pool to Z% post-money?” OpenCap Lite is a self-hosted OSS cap table and transparent scenario engine that gives founders Carta-grade modeling for $0 — every calculation step visible, every assumption editable, no premium tier.
+
+### Success Metrics (12-month)
+
+|Metric                    |Target                                       |Measurement                                                  |
+|--------------------------|---------------------------------------------|-------------------------------------------------------------|
+|Active self-hosters       |50                                           |Opt-in anonymous telemetry ping (`POST /telemetry/heartbeat`)|
+|Accelerator adoption      |≥1 program recommends it in cohort curriculum|Qualitative confirmation                                     |
+|GitHub stars              |500+                                         |Proxy, not a goal                                            |
+|Critical-path bug reports |< 3/quarter after v1.0                       |GitHub issues labeled `math-correctness`                     |
+|Golden-file test pass rate|100%                                         |CI gate                                                      |
+
+### Non-Goals
+
+- Not a legal automation platform (no document generation, e-signing, or filing workflows)
+- Not a tax filing platform (no 83(b), QSBS, or 409A automation)
+- Not a full Carta clone (no equity plan administration, ASC 718 expensing, or secondary markets)
+- Not an incorporation tool
+- Not a data room / investor update platform
+- Not going to support US-only conventions forever (currency/jurisdiction pluggable from day 1)
+
+-----
+
+## 2. Users & Market
+
+### Primary Persona — “Priya, First-Time Technical Founder”
+
+- **Stage:** pre-seed to seed, Delaware C-corp
+- **Round:** raising $500K–$3M on SAFEs, possibly with 1–2 notes
+- **Company shape:** 1–3 cofounders, 0–3 hires, 0–2 advisor grants
+- **Current tools:** Excel/Sheets or Carta’s free Launch tier (capped at 25 stakeholders)
+- **Technical comfort:** Can run `docker compose up`, reads Prisma, writes code
+- **Primary JTBD:** *“Before I sign a SAFE or close a priced round, show me exactly how ownership moves under different terms so I can negotiate and not be surprised.”*
+- **Secondary JTBD:** *“Give me a defensible cap table artifact I can hand to my next investor’s lawyer.”*
+- **Top frustrations:**
+1. Excel silently breaks once 3+ SAFEs stack (circular-reference bugs, post-money denominator mistakes)
+1. Carta’s free tier doesn’t include scenario modeling; it’s gated at ~$3K+/yr
+1. Pulley has modeling on free but caps stakeholders, breaks at Series A
+1. Lawyer fees for “model this SAFE” cost more than the software would
+
+### Secondary Persona — “Sam, Non-Technical Founder”
+
+- Same fundraising profile, but can’t run Docker
+- Needs a one-click deploy button (Railway, Render, Fly.io) or a hosted community demo instance
+- Willing to trade self-hosting for a free hosted tier hosted by the project (community edition)
+
+### Tertiary Personas (build for Priya first, these benefit automatically)
+
+- **Fractional CFO** serving 3–10 portfolio companies (one self-host, many orgs)
+- **Accelerator program director** (YC, Techstars, boutique) baking it into cohort curriculum
+- **Angel syndicate lead** modeling dilution across a portfolio of 20–30 checks
+- **Startup lawyer** doing quick-and-dirty modeling without billing engineering
+
+### Market
+
+Non-revenue project. YC’s active portfolio is the rough proxy (~5,000 companies cumulative, ~400 new/year). Combined with non-YC seed-stage US C-corps (~50K–100K at any given moment, per Crunchbase-adjacent estimates — unvalidated), cost-conscious subset ~30–50%, reachable in year 1 via GitHub + HackerNews + accelerator partnerships.
+
+### Competitive Positioning
+
+|Tool                            |Free tier       |Scenario modeling     |Self-host |Math transparency  |Our edge                                                     |
+|--------------------------------|----------------|----------------------|----------|-------------------|-------------------------------------------------------------|
+|Carta                           |≤25 stakeholders|Paid tiers only       |No        |Black-box          |Free scenario modeler + self-host + transparent math         |
+|Pulley                          |Up to Series A  |Yes, gated later      |No        |Partial            |No gating, you own the data                                  |
+|AngelList Stack                 |AL-linked only  |Limited               |No        |Black-box          |Works outside AL, supports arbitrary instruments             |
+|Excel/Sheets                    |Forever         |Hand-rolled           |Trivially |Forced transparency|Correctness on stacked SAFEs, audit trail, no broken formulas|
+|captableinc/captable (OSS, AGPL)|—               |**No scenario engine**|Yes (AGPL)|N/A                |MIT + the scenario engine they lack                          |
+
+### Positioning Statement
+
+> For technical and non-technical early-stage founders raising on SAFEs and convertibles who need serious dilution modeling but can’t justify Carta’s pricing ramp, OpenCap Lite is a self-hosted cap table and scenario engine that delivers transparent, editable, Carta-grade modeling at $0 — unlike spreadsheets that break silently on stacked SAFEs and SaaS tools that gate the modeler behind paid tiers.
+
+-----
+
+## 3. Scope
+
+### In Scope (v1.0 feature surface — to be built in full)
+
+All modules and entities in the original build spec:
+
+- **Dashboard:** summary cards, quick links
+- **Cap Table:** Ownership Summary, Stakeholders, Holdings, Option Grants, SAFEs, Notes, Security Classes (full CRUD with CSV import/export)
+- **Scenario Builder:** create/duplicate/edit/save scenarios, compare side-by-side, live preview
+- **Scenario Results:** pre/post ownership tables, conversion details per instrument, formula explanations, warnings, exports
+- **Settings:** company, default assumptions, formatting, advanced-mode toggles
+- **Calculation engine:** SAFE conversion (cap/discount/MFN/post-money/pre-money), convertible note accrued interest (simple/compound), priced round pricing, pool top-up solver, fixed-equity-percent solver, conversion ordering rules
+- **Multi-company support:** from day 1 (single binary, multiple companies)
+- **Self-hosting:** Docker + docker-compose
+- **One-click deploy:** Railway, Render, Fly.io button (non-technical founders)
+- **Community demo instance** at `demo.opencaplite.io` (read-only sample data)
+- **OCF import/export:** speak the Open Cap Table Format spec for interop with Carta/Pulley/Shoobx
+- **CSV import/export** per Carta-compatible columns
+- **Audit log** for all cap-table mutations
+
+### Parking Lot (explicitly deferred to post-v1.0)
+
+- Document generation (SAFE/note/option grant PDFs)
+- E-signature
+- Data rooms
+- Investor update composition
+- 409A valuation
+- ASC 718 expense reporting
+- Secondary transactions
+- Multi-jurisdiction legal templates
+- Mobile-native apps
+- SSO (SAML, OIDC) — stays in roadmap, not v1.0
+- Multi-tenancy / true SaaS mode
+
+### Hard Boundaries
+
+- No legal advice output
+- No tax advice output
+- Every computed number must be traceable to an editable input or a documented default
+- No telemetry beyond opt-in heartbeat (no analytics, no usage tracking)
+
+-----
+
+## 4. Goals & Non-Goals
+
+### Goals
+
+1. **Correctness-first.** Every calculation reproduces a known-good reference to the cent. Correctness ships ahead of features.
+1. **Transparency.** Every result exposes its formula, inputs, and intermediate values. No black-box numbers.
+1. **Editability.** Every assumption that materially affects output is editable in the UI — no hidden defaults.
+1. **Interop.** OCF in, OCF out. CSV in, CSV out. Zero lock-in.
+1. **Two deploy paths.** Technical founders `docker compose up`. Non-technical founders click a button.
+1. **Agent-buildable.** Every component has a deterministic spec an AI coding agent can implement without judgment calls.
+
+### Non-Goals
+
+- Performance at scale (target: single-tenant, <1000 stakeholders per company)
+- Real-time multi-user collaboration
+- Offline / PWA support
+- Mobile-responsive beyond “works on tablet”
+- i18n in v1.0 (English only; structure must not block future locales)
+
+-----
+
+## 5. User Stories
+
+### Happy Path
+
+- As Priya, I want to create a company, add two founders with their equity grants, and see a clean ownership summary — so I have a baseline cap table.
+- As Priya, I want to enter two outstanding SAFEs (one cap-only, one cap+discount) and one convertible note, then create a scenario modeling a $2M seed round at $8M pre-money — so I can see my dilution before signing the term sheet.
+- As Priya, I want to change the pre-money valuation and new money amount and see the ownership table update live — so I can negotiate with actual numbers.
+- As Priya, I want to see *why* each SAFE chose cap or discount for conversion — so I trust the output.
+- As Priya, I want to duplicate a scenario and change one parameter — so I can compare outcomes side by side.
+- As Priya, I want to export the final ownership table as CSV — so I can share with my cofounder or lawyer.
+
+### Edge Cases
+
+- As Priya, I want to see a warning (not a hard block) if a note’s maturity date has passed — so I can decide whether to force conversion or repay.
+- As Priya, I want MFN SAFEs to be flagged as unresolved — so I don’t make decisions on phantom numbers.
+- As Priya, I want to be warned if the scenario exceeds authorized shares — so I know a board action is needed.
+- As Priya, I want the system to refuse nonsensical inputs (negative share counts, >100% pool) with a specific error — so I can’t silently build a broken model.
+
+### Non-Technical Deploy
+
+- As Sam, I want to click a “Deploy to Railway” button in the README and have a working instance within 10 minutes — so I don’t need to learn Docker to use this.
+- As Sam, I want a hosted read-only demo to try before I deploy — so I can evaluate without commitment.
+
+-----
+
+## 6. Functional Requirements (MoSCoW)
+
+### Must-Have (P0 — ship-blocking)
+
+**M1. Data Model (OCF-aligned where possible)**
+
+- Given a fresh install, When I create a company with legal name, jurisdiction, and authorized shares, Then the company persists and becomes the active context.
+- All 11 entities from the original spec exist with full CRUD: Company, Stakeholder, SecurityClass, EquityHolding, OptionGrant, SAFEInstrument, ConvertibleNote, Scenario, ScenarioRoundInput, ScenarioNewInstrumentInput, AuditLog.
+
+**M2. Calculation Engine**
+
+- Given a scenario with a priced round configuration, When I calculate, Then every output matches the golden-file test corpus (see §13) to the cent.
+- SAFE conversion supports: cap-only, discount-only, cap+discount, MFN (marked unresolved), post-money mode, pre-money mode.
+- Note interest supports: simple and compound, with editable compounding frequency and accrual cutoff date.
+- Pool top-up solver converges for: none, target-post-money-percent, fixed-shares, fixed-percent-pre-money.
+- Fixed-equity-percent solver (e.g. accelerator 7%) uses the documented formula and shows the derivation in the UI.
+- Every result exposes formula, inputs, and intermediate values.
+
+**M3. Scenario Sandbox**
+
+- Given the real cap table, When I create a scenario, Then a snapshot is persisted and the real cap table is never mutated.
+- Given a saved scenario, When I edit and re-calculate, Then results update without changing the real cap table.
+
+**M4. User-Editable Ordering Rules**
+
+- Given a scenario, When I change the conversionOrderingRule or safesConvertUsing option, Then the calculation re-runs and the ordering is visible in the results page.
+
+**M5. Warnings (not blocks)**
+
+- Authorized shares exceeded, MFN unresolved, note past maturity, negative available pool, inconsistent priced round inputs — all surface as warnings on the results page, none block the calculation.
+
+**M6. OCF Interop**
+
+- Given an OCF-formatted zip, When I import, Then stakeholders, security classes, holdings, option grants, SAFEs, and notes are created and mapped 1:1 to OCF objects.
+- Given a cap table, When I export OCF, Then the output validates against the OCF v1.2.0 JSON schemas.
+
+**M7. CSV Import / Export**
+
+- Stakeholders, holdings, option grants, SAFEs, notes — each importable and exportable as CSV.
+- Export column headers align with Carta’s standard export format where possible.
+
+**M8. Self-Host Docker**
+
+- Given a fresh machine with Docker, When I run `docker compose up`, Then the app is live on localhost:3000 with a seeded demo company.
+
+**M9. One-Click Deploy (non-technical)**
+
+- README has working Deploy-to-Railway, Deploy-to-Render, and Deploy-to-Fly buttons.
+- Each button provisions Postgres and the app in ≤10 minutes.
+
+**M10. Audit Log**
+
+- Every mutation to cap table entities creates an AuditLog row with before/after JSON.
+- Scenario calculations do NOT create AuditLog rows (scenarios are sandboxed).
+
+### Should-Have (P1 — important but deferrable within v1.0)
+
+**S1. Community demo instance** at `demo.opencaplite.io` with seeded sample company and read-only banner.
+**S2. Scenario comparison UI** — side-by-side view of two saved scenarios.
+**S3. Vesting calculator** — vested vs unvested breakdown based on grant date, cliff, duration.
+**S4. Accelerator template wizard** — “add YC SAFE” / “add Techstars equity” prefills.
+**S5. Inline help text** on every advanced setting.
+**S6. Dark mode.**
+
+### Future (P2 — parking lot, post-v1.0)
+
+- Document generation, e-signing, data rooms, 409A, ASC 718, SSO, mobile apps, multi-tenant SaaS.
+
+-----
+
+## 7. Data Model
+
+Full Prisma schema in the Build Prompts companion. Summary of entity relationships:
+
+```
+Company 1——n Stakeholder
+Company 1——n SecurityClass
+Company 1——n EquityHolding (→ Stakeholder, SecurityClass)
+Company 1——n OptionGrant (→ Stakeholder)
+Company 1——n SAFEInstrument (→ Stakeholder)
+Company 1——n ConvertibleNote (→ Stakeholder)
+Company 1——n Scenario
+Scenario 1——1 ScenarioRoundInput
+Scenario 1——n ScenarioNewInstrumentInput
+Company 1——n AuditLog
+```
+
+### OCF Alignment
+
+Where the spec entities map cleanly to OCF object types, Prisma field names follow OCF naming conventions:
+
+|OpenCap Lite entity|OCF object type                               |
+|-------------------|----------------------------------------------|
+|Company            |`Issuer`                                      |
+|Stakeholder        |`Stakeholder`                                 |
+|SecurityClass      |`StockClass` / `StockPlan` / `Warrant`        |
+|EquityHolding      |`StockIssuance` / `EquityCompensationIssuance`|
+|OptionGrant        |`EquityCompensationIssuance` (OPTION)         |
+|SAFEInstrument     |`ConvertibleIssuance` (SAFE)                  |
+|ConvertibleNote    |`ConvertibleIssuance` (NOTE)                  |
+|Scenario           |*(no OCF equivalent — internal)*              |
+|AuditLog           |*(no OCF equivalent — internal)*              |
+
+Full field-level mapping in `/docs/OCF_MAPPING.md` (generated in Layer 1 of the build).
+
+-----
+
+## 8. API Surface
+
+REST via Next.js App Router route handlers (`/app/api/...`). All routes return JSON. All routes validate input via Zod.
+
+### Resource routes (standard CRUD)
+
+```
+GET    /api/companies                       List companies
+POST   /api/companies                       Create company
+GET    /api/companies/:id                   Get company
+PUT    /api/companies/:id                   Update company
+DELETE /api/companies/:id                   Delete company
+
+(same pattern for: stakeholders, security-classes, holdings,
+ option-grants, safes, notes, scenarios)
+```
+
+### Scenario calculation (non-mutating)
+
+```
+POST   /api/scenarios/calculate
+  Body: full scenario input payload (does NOT need to be saved)
+  Returns: { inputs, intermediates, ownershipTables, warnings, explanations }
+```
+
+### OCF import/export
+
+```
+POST   /api/companies/:id/ocf/import        Multipart zip upload
+GET    /api/companies/:id/ocf/export        Returns OCF zip
+```
+
+### CSV import/export (per entity type)
+
+```
+POST   /api/companies/:id/csv/:entityType/import
+GET    /api/companies/:id/csv/:entityType/export
+```
+
+### Telemetry (opt-in)
+
+```
+POST   /api/telemetry/heartbeat             Anonymized install ping, opt-in only
+```
+
+Response envelopes for errors: `{ error: string, code: string, details?: object }` with appropriate HTTP status (400 for validation, 404 for not-found, 500 for server error).
+
+-----
+
+## 9. Calculation Engine Specification
+
+**This is the single most important module in the codebase. It must be:**
+
+- Pure (no DB calls, no I/O — operates on plain input objects, returns plain result objects)
+- Deterministic (same input → same output, always)
+- Located at `/lib/scenario-engine/` with no UI or API imports
+- Covered by golden-file tests against published references (§13)
+- Covered by property-based tests (§13)
+
+### 9.1 Fully Diluted Share Count
+
+**Formula (default methodology):**
+
+```
+FD = sum(EquityHolding.shareCount where status = ACTIVE)
+   + sum(OptionGrant.optionCount - OptionGrant.cancelledCount where status = ACTIVE)
+   + (SettingOptionPoolReservedUngranted ?? 0)
+```
+
+User-toggleable settings:
+
+- `includeAllGrantedOptions` (default: true)
+- `includeCancelledGrants` (default: false)
+- `includeReservedUngranted` (default: true)
+
+### 9.2 Convertible Note Accrued Interest
+
+```
+Simple:    accrued = principal × annualRate × (daysElapsed / 365)
+Compound:  accrued = principal × ((1 + annualRate/frequency)^periods − 1)
+           where periods = daysElapsed × frequency / 365
+Total conversion amount: principal + accrued
+```
+
+`accrualCutoffDate` defaults to scenario’s round close date but is editable.
+
+### 9.3 SAFE / Note Conversion Pricing
+
+```
+discountPrice  = roundPricePerShare × (1 − discountPercent/100)
+capPrice       = valuationCap / capDenominatorShares
+```
+
+`capDenominatorShares` is a scenario setting:
+
+- `CURRENT_FULLY_DILUTED` (default)
+- `FULLY_DILUTED_EXCLUDING_CONVERTIBLES`
+- `USER_OVERRIDE` (numeric)
+
+### 9.4 Best-for-Investor Logic
+
+```
+if safe/note has both cap and discount:
+    effectivePrice = min(capPrice, discountPrice)
+elif only cap:
+    effectivePrice = capPrice
+elif only discount:
+    effectivePrice = discountPrice
+elif MFN and no pricing specified:
+    mark UNRESOLVED, exclude from conversion unless scenario.mfnFallback is set
+```
+
+Per-scenario override: `safesConvertUsing` = `BEST_FOR_INVESTOR` | `CAP_ONLY` | `DISCOUNT_ONLY` | `USER_SELECTED_PER_SAFE`.
+
+### 9.5 Priced Round Price Per Share
+
+```
+if scenario.pricedRoundPricePerShareOverride is set:
+    pps = override
+else:
+    pps = pricedRoundPreMoneyValuation / preMoneyDenominatorShares
+```
+
+`preMoneyDenominatorShares` methodology is user-editable:
+
+- `CURRENT_FULLY_DILUTED` (default)
+- `FULLY_DILUTED_EXCLUDING_CONVERTIBLES`
+- `USER_OVERRIDE`
+
+### 9.6 New Investor Shares
+
+```
+newInvestorShares = pricedRoundNewMoney / pricePerShare
+```
+
+### 9.7 Fixed Equity Percent Template (Accelerators)
+
+```
+sharesToIssue = (targetPercent × existingShares) / (1 − targetPercent)
+```
+
+This formula must be visible in the UI next to the computed number.
+
+### 9.8 Option Pool Top-Up
+
+Modes:
+
+- `NONE`: no change
+- `TO_TARGET_POST_MONEY_PERCENT`: iteratively solve for `additionalShares` such that `(currentPool + additionalShares) / postMoneyFullyDiluted = targetPercent`
+- `FIXED_SHARES`: add the supplied share count
+- `FIXED_PERCENT_PRE_MONEY`: `additionalShares = pre-moneyFD × fixedPercent`
+
+The solver must converge within 100 iterations or ε < 1 share, and document its convergence method in the results view.
+
+### 9.9 Conversion Ordering Rules (user-editable)
+
+```
+NOTES_THEN_SAFES_THEN_NEW_MONEY
+SAFES_THEN_NOTES_THEN_NEW_MONEY
+CONVERTIBLES_THEN_POOL_TOPUP_THEN_NEW_MONEY   (default)
+POOL_TOPUP_THEN_CONVERTIBLES_THEN_NEW_MONEY
+CUSTOM_SIMPLIFIED
+```
+
+Each rule produces a deterministic sequence of stages. The results page shows the stage sequence and the cap table state at the end of each stage.
+
+-----
+
+## 10. UI / UX Requirements
+
+### 10.1 Layout Conventions
+
+- shadcn/ui components for every primitive
+- Tailwind utility classes, no custom CSS unless necessary
+- Sticky-header tables via TanStack Table
+- Recharts for any visual (ownership pie, before/after bar)
+- Forms: React Hook Form + Zod resolver
+- All numeric inputs: support “10” or “10%” for percents; auto-format currency on blur
+
+### 10.2 Scenario Builder Layout
+
+Two-pane:
+
+- **Left:** scenario assumptions form (collapsible advanced sections)
+- **Right:** live results preview (debounced 300ms on input changes)
+
+### 10.3 Results Page Requirements
+
+Every scenario results page must include, in order:
+
+1. Summary cards (pre-money, new money, pps, total SAFE/note conversion, pool top-up, post-money FD)
+1. Ownership tables (before → after conversion → after pool → final)
+1. Convertible detail panels (one per SAFE and note, showing cap price, discount price, selected price, conversion amount, shares issued, “why cap won” text)
+1. Formula explanation section (all formulas from §9 in readable form with live values substituted)
+1. Warnings panel (M5)
+1. Export buttons (CSV ownership, CSV conversions, JSON full scenario + result)
+
+### 10.4 Advanced Mode Toggle
+
+Global setting. When OFF, hides: capDenominatorShares override, preMoneyDenominatorShares override, conversionOrderingRule, MFN fallback.
+
+### 10.5 Autosave
+
+Scenario drafts autosave to localStorage every 2 seconds during editing; warning banner if unsaved changes on navigation.
+
+-----
+
+## 11. Validation Rules
+
+### Hard (block submit)
+
+- Share counts ≥ 0
+- Money fields ≥ 0
+- Percentages 0–100
+- Maturity date ≥ issue date
+- Compound interest requires `compoundingFrequencyPerYear`
+- Cap-only SAFE: discount must be null
+- Discount-only SAFE: cap must be null
+- Fixed-equity template: `equityPercent` required
+
+### Soft (warning only — do not block)
+
+- Authorized shares exceeded in scenario
+- Unresolved MFN SAFEs in scenario
+- Round assumptions inconsistent (e.g. pre-money + new money produces pps ≤ 0)
+- Post-money ownership >100% (indicates malformed settings)
+- Note past maturity date
+
+-----
+
+## 12. Security & Non-Functional
+
+### Security (v1.0)
+
+- Auth.js (NextAuth v5) with credentials provider by default; email/OTP provider optional
+- Multi-company access: any authenticated user sees all companies on the instance (single-tenant model)
+- All mutations go through server-side routes; no direct client DB access
+- Environment-variable-based secrets (no defaults in Dockerfile)
+- CSRF protection via Next.js defaults
+- Rate limiting: 60 requests/min per IP on mutation routes (configurable)
+
+### Non-functional targets
+
+- Cold-start `docker compose up` → app reachable in < 60 seconds
+- Scenario calculation (up to 20 SAFEs + 5 notes) < 500ms on a 2-core VM
+- Page load (main dashboard) < 1.5s on cable
+- Zero external network dependencies at runtime (no CDN-hosted fonts, no analytics)
+
+### Accessibility
+
+- All interactive elements keyboard-reachable
+- Form inputs labeled via `aria-label` or `<label>`
+- Color-contrast WCAG AA
+- No “accessibility compliance” claim — aim for AA, document gaps
+
+-----
+
+## 13. Math Correctness Requirements (P0)
+
+**This section is the non-negotiable floor. No release without these gates green.**
+
+### 13.1 Golden-File Test Corpus
+
+Create `/tests/golden/` with fixtures reproducing worked examples from:
+
+1. **YC’s official post-money SAFE user guide** — single post-money SAFE conversion at Series A
+1. **YC post-money SAFE with discount** — cap + discount selection
+1. **Alexander Jarvis’ post-money SAFE calculator blog** — multi-SAFE stack with full-ratchet edge cases
+1. **OpenStartupModel (openstartupmodel.com)** — Excel template with stacked SAFEs + note
+1. **StartupSOS 10-SAFE stack spreadsheet** — maximum instrument stacking
+1. **Carta’s public SAFE/note calculator page worked example** — baseline priced round
+
+For each fixture:
+
+- Input JSON
+- Expected output JSON (computed once by hand, reviewed, locked)
+- Test runs every CI build; any diff is a release-blocking failure
+
+### 13.2 Property-Based Tests (fast-check)
+
+- Ownership percentages sum to 100 ± 0.0001 across all scenarios
+- `selectedPrice ≤ min(capPrice, discountPrice)` for BEST_FOR_INVESTOR mode
+- Pool top-up solver reaches target within ε < 1 share after convergence
+- Note accrued interest is monotonically non-decreasing with time
+- Increasing `newMoney` monotonically decreases founder ownership %
+- Scenario outputs are deterministic: same input hash → same output hash
+
+### 13.3 Known Limitations Doc (P0)
+
+`/docs/KNOWN_LIMITATIONS.md` must explicitly name cases the engine does NOT handle, including at least:
+
+- Multi-tranche preferred with different participation rights per tranche
+- Anti-dilution adjustments (weighted-average, full-ratchet) on existing preferred
+- Liquidation waterfall modeling
+- QSBS holding period tracking
+- ISO vs NSO tax treatment
+- Early exercise / 83(b) flows
+- Drag/tag-along rights
+- Unresolved MFN SAFE pricing
+
+This file must be linked from the README and from the in-app Settings page.
+
+### 13.4 Disclaimer (P0)
+
+Every results page footer and the README include:
+
+> OpenCap Lite is a modeling tool, not legal, tax, or accounting advice. Always validate results with your attorney and CPA before making decisions.
+
+-----
+
+## 14. Deployment
+
+### 14.1 Docker (technical users)
+
+- `docker-compose.yml` at repo root brings up app + Postgres
+- Single `.env.example` with all tunable variables
+- `docker compose exec app pnpm db:migrate && pnpm db:seed` after first up
+- Image published to Docker Hub as `opencaplite/opencaplite:latest`
+
+### 14.2 One-Click (non-technical users)
+
+README includes working buttons for:
+
+- **Railway:** `railway.app/new/template/...`
+- **Render:** `render.com/deploy?repo=...`
+- **Fly.io:** `fly.io/launch` with a `fly.toml` in repo
+
+Each provisions Postgres + app and seeds a demo company.
+
+### 14.3 Community Demo Instance (P1)
+
+- `demo.opencaplite.io` runs the latest main branch
+- Pre-loaded with a realistic demo company (§15)
+- Read-only mode enforced at route handler level (writes rejected)
+- Reset nightly via cron
+
+-----
+
+## 15. Seed Data
+
+`prisma/seed.ts` creates a realistic demo company “Acme Labs, Inc.” with:
+
+- 2 founders (8,000,000 common each, 4-year vest, 1-year cliff)
+- 1 employee option grant (100,000 options, $0.10 strike)
+- 1 advisor option grant (25,000 options)
+- 1 option pool (SecurityClass) with 2,000,000 authorized reserved
+- 1 existing preferred investor (seed-preferred, 1,000,000 shares at $1/share)
+- 2 outstanding SAFEs (one cap-only @ $10M, one cap+discount @ $12M/20%)
+- 1 outstanding convertible note ($250K, 6% simple, 24-month maturity, $15M cap)
+- 3 example scenarios:
+1. “$750K SAFE bridge” (NEW_SAFE scenario)
+1. “$2M seed priced round with 10% pool top-up” (PRICED_ROUND scenario)
+1. “Accelerator 7% fixed equity vs equivalent SAFE” (comparison scenario)
+
+-----
+
+## 16. Testing
+
+|Layer      |Framework              |Scope                                                                   |
+|-----------|-----------------------|------------------------------------------------------------------------|
+|Unit       |Vitest                 |Calculation engine, validators, formatters — 100% line coverage         |
+|Property   |fast-check (via Vitest)|§13.2 invariants                                                        |
+|Golden     |Vitest + JSON fixtures |§13.1 corpus                                                            |
+|Integration|Vitest                 |API route handlers with an ephemeral Postgres                           |
+|E2E        |Playwright             |5 flows: load demo, edit SAFE, create scenario, adjust round, export CSV|
+
+CI gates: all layers must pass before merge. Golden-file failures are release-blocking.
+
+-----
+
+## 17. Roadmap
+
+### v0.1 (target: 3 weeks of agent time)
+
+Foundation + calculation engine + minimal scenario UI. No auth, no multi-company UX polish, no OCF yet. **Goal: a working scenario calculator that passes golden-file tests.**
+
+### v0.2 (target: +3 weeks)
+
+Full CRUD UI for all cap-table entities, CSV import/export, audit log, Docker compose, README with deploy buttons. **Goal: a first self-hoster can use it end-to-end.**
+
+### v0.3 (target: +2 weeks)
+
+OCF import/export, scenario comparison, accelerator templates, community demo instance, polish pass. **Goal: v1.0 release to the community.**
+
+### Post-v1.0 (community-driven)
+
+Parking-lot items pulled based on GitHub issue volume and contributor interest.
+
+-----
+
+## 18. Open Questions
+
+|#  |Question                                                                                                          |Blocking?                                             |Owner           |
+|---|------------------------------------------------------------------------------------------------------------------|------------------------------------------------------|----------------|
+|OQ1|Which auth provider for v1.0 — credentials only, or credentials + email OTP?                                      |Non-blocking (default credentials)                    |Asad            |
+|OQ2|Should the community demo instance allow ephemeral sandbox accounts, or stay read-only?                           |Non-blocking                                          |Asad + community|
+|OQ3|Precise golden-file fixtures from YC/Carta — are there licensing concerns reusing their published worked examples?|Non-blocking (use numeric reproduction only, not text)|Asad            |
+|OQ4|Which accelerator should we target for the “adopted by 1 program” success metric?                                 |Non-blocking                                          |Asad            |
+|OQ5|Should we publish an npm package of just the calculation engine for other OSS tools to embed?                     |Non-blocking (revisit after v1.0)                     |Community       |
+
+-----
+
+## 19. Risks
+
+|Risk                                            |Severity    |Mitigation                                                                |
+|------------------------------------------------|------------|--------------------------------------------------------------------------|
+|Silent math error gives founder false confidence|**Critical**|§13 golden files + property tests gate every release; KNOWN_LIMITATIONS.md|
+|Agent-written code has subtle scope drift       |High        |Every prompt under 200 words; Verification prompts between layers         |
+|AGPL contamination via dependency               |Medium      |License audit before each minor release; avoid AGPL deps                  |
+|Project appears abandoned (maintainer burnout)  |Medium      |Non-revenue but multi-year commitment; issue triage rhythm defined        |
+|OCF spec evolves and we lag                     |Low         |Pin to OCF v1.2.0 at launch; track upstream issues                        |
+
+-----
+
+## 20. Human Review Loop (explicit)
+
+This project is built by AI coding agents. That shifts — but doesn’t remove — human responsibility. **Asad owns:**
+
+1. Problem-statement alignment — does the spec still describe the actual user need?
+1. Acceptance-criteria review on every PR before merge
+1. Golden-file test authoring — the numbers the agents are matching against
+1. Bug triage — deciding whether a reported wrong number is a math bug or a known limitation
+1. Release sign-off — the “ship it” decision, regardless of CI green
+
+The PRD is the human-loop artifact. Changes to this PRD require explicit edit, not inference by agents.
+
+-----
+
+**End of PRD.**
