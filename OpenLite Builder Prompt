@@ -1,0 +1,1194 @@
+# OpenCap Lite — Build Prompts for Claude Code / Replit Agents
+
+**Source spec:** `OpenCapLite_PRD.md`  
+**Stack:** Next.js 14 (App Router) + TypeScript + React + Tailwind + shadcn/ui + Prisma + PostgreSQL + Zod + React Hook Form + TanStack Table + Vitest + fast-check + Playwright + Docker  
+**Total Prompts:** 36 (across 6 layers + final)  
+**Build order:** Foundation → Backend → Frontend Shell → Integration → Polish → Verification
+
+-----
+
+## How to use this document
+
+Paste one prompt at a time into your coding agent (Claude Code, Replit Agent, Cursor, etc.). **Do not skip ahead.** Run each VERIFICATION PROMPT before starting the next layer. If an agent fails a verification, re-run the failing prompt before proceeding.
+
+Every prompt assumes the agent has access to `OpenCapLite_PRD.md` in the project root. If not, paste the relevant PRD section into the agent’s context first.
+
+-----
+
+# LAYER 0 — PROJECT SCAFFOLDING
+
+-----
+
+### PROMPT 0.1 — Initialize Next.js + TypeScript + Prisma Scaffold
+
+**Context:**  
+No prior code exists. Target directory: repo root. PRD at `OpenCapLite_PRD.md` (§7 data model, §8 API surface, §14 deployment).
+
+**Task:**  
+Create a Next.js 14 project with App Router and TypeScript strict mode. Install and configure: Tailwind CSS, shadcn/ui (init with default settings, slate base color), Prisma with PostgreSQL provider, Zod, React Hook Form with `@hookform/resolvers/zod`, TanStack Table v8, Recharts.
+
+Create these exact directories under `src/`:
+
+- `src/lib/prisma.ts` — exported singleton Prisma client
+- `src/lib/scenario-engine/` — empty, for calculation engine modules
+- `src/lib/validators/` — empty, for Zod schemas
+- `src/lib/formatters/` — empty, for currency/percent/date formatters
+- `src/components/forms/` `src/components/tables/` `src/components/results/` — empty
+
+Create `prisma/schema.prisma` with datasource + generator blocks only — no models yet.
+
+**Constraints:**
+
+- Do NOT define any Prisma models yet (that comes in Prompts 1.1–1.3)
+- Do NOT create any pages beyond the default Next.js ones
+- Use `pnpm` as package manager; lockfile is `pnpm-lock.yaml`
+- TypeScript `strict: true` in `tsconfig.json`
+
+**Expected Output:**
+
+- Working Next.js dev server on `pnpm dev`
+- `pnpm exec prisma validate` passes
+- `pnpm exec tsc --noEmit` returns zero errors
+- Folder structure exactly as above
+
+-----
+
+### PROMPT 0.2 — Docker Compose + Environment Config
+
+**Context:**  
+Project scaffold from Prompt 0.1 exists. PRD §14 specifies Docker as primary deploy path.
+
+**Task:**  
+Create at repo root:
+
+- `Dockerfile` (multi-stage: node:20-alpine base, pnpm install, next build, production node slim)
+- `docker-compose.yml` with two services: `app` (the Next app, port 3000) and `db` (postgres:16-alpine, port 5432, volume `pgdata`)
+- `.env.example` with: `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ENABLE_TELEMETRY` (default false)
+- `.dockerignore` excluding `node_modules`, `.next`, `.env`, `.git`
+- Health check endpoint `/api/health` returning `{ status: "ok" }`
+
+**Constraints:**
+
+- Do NOT add Auth.js configuration yet (that comes in a later auth prompt)
+- Do NOT add Redis, MinIO, or any service beyond app + db
+- App container must wait for db readiness before starting
+- Default Postgres credentials are `opencap` / `opencap` in `.env.example`; production must override
+
+**Expected Output:**
+
+- `docker compose up` builds and starts both services without error
+- `curl localhost:3000/api/health` returns HTTP 200 with `{"status":"ok"}`
+- `docker compose down -v` cleanly removes everything
+
+-----
+
+# LAYER 1 — FOUNDATION (DATA MODELS)
+
+-----
+
+### PROMPT 1.1 — Prisma Schema: Company, Stakeholder, SecurityClass, EquityHolding
+
+**Context:**  
+Prisma scaffold from Prompt 0.1 exists at `prisma/schema.prisma`. PRD §7 specifies 11 entities; this prompt covers the first 4. OCF naming alignment noted in PRD §7.
+
+**Task:**  
+Add these four models to `prisma/schema.prisma` with exact fields from PRD §7:
+
+- `Company`: id (cuid), legalName, jurisdiction, incorporationDate, authorizedCommonShares (BigInt), authorizedPreferredShares (BigInt), defaultCurrency (String @default(“USD”)), createdAt, updatedAt
+- `Stakeholder`: id, companyId (FK to Company), type (StakeholderType enum: FOUNDER, EMPLOYEE, ADVISOR, ANGEL, VC, ACCELERATOR, OTHER), name, email, notes, createdAt, updatedAt
+- `SecurityClass`: id, companyId, name, type (SecurityType enum: COMMON, PREFERRED, OPTION_POOL, WARRANT, LLC_UNIT, OTHER), seniorityOrder (Int), authorizedShares (BigInt?), liquidationPreferenceMultiple (Decimal?), participationRights (Boolean default false), createdAt, updatedAt
+- `EquityHolding`: all 14 fields from PRD §7 including HoldingStatus enum (ACTIVE, CANCELLED, REPURCHASED) and VestingFrequency enum (MONTHLY, QUARTERLY, ANNUAL, NONE)
+
+**Constraints:**
+
+- Do NOT add OptionGrant, SAFEInstrument, ConvertibleNote, Scenario yet (next prompts)
+- Use `BigInt` for all share-count fields, `Decimal` for money and percentages
+- Use `@relation` with `onDelete: Restrict` for all FKs
+- Do NOT run migration yet
+
+**Expected Output:**
+
+- Four models + three enums added to `schema.prisma`
+- `pnpm exec prisma validate` passes
+- `pnpm exec prisma format` runs clean
+
+-----
+
+### PROMPT 1.2 — Prisma Schema: OptionGrant, SAFEInstrument, ConvertibleNote
+
+**Context:**  
+Company, Stakeholder, SecurityClass, EquityHolding exist (Prompt 1.1). PRD §7 entities 5–7.
+
+**Task:**  
+Add to `prisma/schema.prisma`:
+
+- `OptionGrant`: all 13 fields from PRD §7 including OptionGrantStatus enum (ACTIVE, CANCELLED, EXPIRED). `strikePrice` is Decimal. `optionCount`, `exercisedCount`, `cancelledCount` are BigInt.
+- `SAFEInstrument`: all 14 fields from PRD §7 including SAFEStatus enum (OUTSTANDING, CONVERTED, CANCELLED). Flags `mfn`, `postMoney`, `proRataRights` all Boolean. `purchaseAmount`, `valuationCap`, `discountPercent` are Decimal. `sideLetterNotes` is String?.
+- `ConvertibleNote`: all 14 fields from PRD §7 including NoteStatus enum (OUTSTANDING, CONVERTED, REPAID, CANCELLED) and InterestType enum (SIMPLE, COMPOUND). Decimals for principal, annualInterestRatePercent, valuationCap, discountPercent.
+
+**Constraints:**
+
+- Do NOT add Scenario models yet (next prompt)
+- Relations: each of these three has `companyId` + `stakeholderId` FKs with `onDelete: Restrict`
+- Do NOT run migration yet
+
+**Expected Output:**
+
+- Three models + four enums added
+- `pnpm exec prisma validate` passes
+
+-----
+
+### PROMPT 1.3 — Prisma Schema: Scenario, ScenarioRoundInput, ScenarioNewInstrumentInput, AuditLog
+
+**Context:**  
+Seven entities exist from Prompts 1.1–1.2. PRD §7 entities 8–11.
+
+**Task:**  
+Add to `prisma/schema.prisma`:
+
+- `Scenario`: all fields from PRD §7 entity 8. `baselineMode` is BaselineMode enum (LIVE_CAP_TABLE, SNAPSHOT). `snapshotJson` is `Json`.
+- `ScenarioRoundInput`: all fields from PRD §7 entity 9, one-to-one with Scenario (`@unique` on scenarioId). Include enums: RoundType, OptionPoolTopUpMode, ConversionOrderingRule (values per PRD §9.9), NotesConvertUsing, SafesConvertUsing.
+- `ScenarioNewInstrumentInput`: all fields from PRD §7 entity 10, one-to-many with Scenario. `type` is NewInstrumentType enum (NEW_SAFE, NEW_NOTE, NEW_EQUITY, NEW_ACCELERATOR_EQUITY). `notesJson` is `Json`.
+- `AuditLog`: id, companyId, entityType, entityId, action (AuditAction enum: CREATE, UPDATE, DELETE), beforeJson Json?, afterJson Json?, createdAt.
+
+**Constraints:**
+
+- `onDelete: Cascade` from Scenario to its inputs (deleting a scenario removes its inputs)
+- `onDelete: Restrict` everywhere else
+
+**Expected Output:**
+
+- Full 11-entity schema complete
+- `pnpm exec prisma validate` passes
+- `pnpm exec prisma format` runs clean
+
+-----
+
+### PROMPT 1.4 — Run Migration + Create Seed Script
+
+**Context:**  
+Full schema exists (Prompts 1.1–1.3). PRD §15 specifies demo company “Acme Labs, Inc.” with exact instrument stack.
+
+**Task:**
+
+1. Run `pnpm exec prisma migrate dev --name init`
+1. Create `prisma/seed.ts` that builds the Acme Labs company exactly as PRD §15 specifies: 2 founders with 8M common each + vesting, 1 employee option grant (100K @ $0.10), 1 advisor grant (25K), 1 option pool SecurityClass (2M reserved), 1 preferred investor (1M @ $1), 2 SAFEs (cap-only $10M; cap+discount $12M/20%), 1 convertible note ($250K, 6% simple, $15M cap, 24mo maturity), 3 example scenarios (bridge / seed priced / accelerator comparison).
+1. Add `"db:seed": "tsx prisma/seed.ts"` to package.json and `"prisma": { "seed": "tsx prisma/seed.ts" }`.
+
+**Constraints:**
+
+- Use deterministic IDs only if needed for tests; otherwise let cuid() generate
+- Seed must be idempotent: running twice produces the same final state
+- Do NOT create any scenario RESULT data yet (engine doesn’t exist)
+
+**Expected Output:**
+
+- Migration file in `prisma/migrations/`
+- `pnpm db:seed` runs without error
+- `pnpm exec prisma studio` shows Acme Labs with all specified records
+
+-----
+
+### VERIFICATION PROMPT V1 — Confirm Foundation Layer Complete
+
+**Context:**  
+Prompts 0.1–1.4 built: Next.js scaffold, Docker setup, full 11-entity Prisma schema, migration, seed.
+
+**Task:**  
+Verify before proceeding to backend:
+
+1. Run `pnpm exec tsc --noEmit` — confirm zero errors
+1. Run `pnpm exec prisma validate` — confirm no schema issues
+1. Run `pnpm exec prisma studio` and confirm: 1 Company (Acme Labs), 2 Stakeholders of type FOUNDER, 2 OptionGrants, 2 SAFEs, 1 Note, 3 Scenarios
+1. Run `docker compose up --build` and confirm app reaches localhost:3000 and `/api/health` returns 200
+
+**Report:**
+
+- Any gap between PRD §7 and the schema
+- Any assumption made about a field type (e.g. BigInt vs Int)
+- Confirm explicitly: “Foundation layer complete, ready for Layer 2” OR “Blocked by: [issue]”
+
+-----
+
+# LAYER 2 — BACKEND / CALCULATION ENGINE + API
+
+-----
+
+### PROMPT 2.1 — Calculation Engine: Fully Diluted Share Count
+
+**Context:**  
+Foundation complete. No engine code yet. PRD §9.1 specifies the formula and three user-toggleable settings.
+
+**Task:**  
+Create `src/lib/scenario-engine/fully-diluted.ts` exporting a pure function:
+
+```ts
+export function computeFullyDiluted(input: {
+  holdings: { shareCount: bigint; status: 'ACTIVE' | 'CANCELLED' | 'REPURCHASED' }[];
+  optionGrants: { optionCount: bigint; cancelledCount: bigint; status: 'ACTIVE' | 'CANCELLED' | 'EXPIRED' }[];
+  reservedUngrantedPool: bigint;
+  settings: {
+    includeAllGrantedOptions: boolean;
+    includeCancelledGrants: boolean;
+    includeReservedUngranted: boolean;
+  };
+}): { fullyDiluted: bigint; breakdown: { common: bigint; options: bigint; reserved: bigint } }
+```
+
+Implement formula exactly per PRD §9.1. Use BigInt arithmetic throughout. Return a breakdown showing the contribution of each component.
+
+**Constraints:**
+
+- Pure function: no DB calls, no I/O
+- No floats anywhere; use BigInt for shares
+- Do NOT handle conversions yet (that’s a later engine module)
+
+**Expected Output:**
+
+- `src/lib/scenario-engine/fully-diluted.ts` with the exported function
+- `src/lib/scenario-engine/fully-diluted.test.ts` with at least 3 Vitest tests covering default settings, cancelled-grants toggle, and reserved-pool toggle
+- `pnpm exec vitest run fully-diluted` passes
+
+-----
+
+### PROMPT 2.2 — Calculation Engine: Convertible Note Accrued Interest
+
+**Context:**  
+Engine module begun (Prompt 2.1). PRD §9.2 specifies simple and compound formulas.
+
+**Task:**  
+Create `src/lib/scenario-engine/note-interest.ts` exporting:
+
+```ts
+export function computeAccruedInterest(input: {
+  principal: Decimal;              // use Prisma.Decimal or decimal.js
+  annualInterestRatePercent: Decimal;
+  interestType: 'SIMPLE' | 'COMPOUND';
+  compoundingFrequencyPerYear: number | null;
+  issueDate: Date;
+  accrualCutoffDate: Date;
+}): { accruedInterest: Decimal; totalConversionAmount: Decimal; daysElapsed: number; method: string }
+```
+
+Use actual-days / 365 day-count. For compound: `principal × ((1 + rate/freq)^periods − 1)` where `periods = daysElapsed × freq / 365`. Use `decimal.js` for all math to avoid float error. Throw explicit error if `interestType === 'COMPOUND'` and `compoundingFrequencyPerYear` is null.
+
+**Constraints:**
+
+- Do NOT use JavaScript `Number` for any money math; decimal.js only
+- Return the `method` string verbatim (e.g. “simple: principal × rate × daysElapsed/365”) — this is what the UI shows to the user
+
+**Expected Output:**
+
+- Module + test file
+- Tests cover: simple interest known value, compound quarterly, compound monthly, missing frequency error
+- `pnpm exec vitest run note-interest` passes
+
+-----
+
+### PROMPT 2.3 — Calculation Engine: Conversion Pricing + Best-for-Investor
+
+**Context:**  
+Modules from Prompts 2.1–2.2 exist. PRD §9.3–9.4.
+
+**Task:**  
+Create `src/lib/scenario-engine/conversion-pricing.ts` exporting:
+
+```ts
+export function computeConversionPrice(input: {
+  valuationCap: Decimal | null;
+  discountPercent: Decimal | null;
+  mfn: boolean;
+  capDenominatorShares: bigint;
+  roundPricePerShare: Decimal;
+  mode: 'BEST_FOR_INVESTOR' | 'CAP_ONLY' | 'DISCOUNT_ONLY' | 'USER_SELECTED';
+  userSelectedMethod?: 'CAP' | 'DISCOUNT';
+}): {
+  capPrice: Decimal | null;
+  discountPrice: Decimal | null;
+  effectivePrice: Decimal | null;
+  selectedMethod: 'CAP' | 'DISCOUNT' | 'UNRESOLVED_MFN';
+  explanation: string;
+}
+```
+
+Implement PRD §9.3 and §9.4 exactly. Return `UNRESOLVED_MFN` with null effectivePrice when MFN is true and both cap/discount are null. The `explanation` string must be human-readable and include the comparison that was made (e.g. “Selected cap price of $0.50 because it is lower than discount price of $0.64 under BEST_FOR_INVESTOR”).
+
+**Constraints:**
+
+- Pure
+- Throw if `capDenominatorShares <= 0n`
+
+**Expected Output:**
+
+- Module + test file covering all six input permutations (cap-only, discount-only, both, MFN unresolved, user-selected cap, user-selected discount)
+
+-----
+
+### PROMPT 2.4 — Calculation Engine: Priced Round Price + Fixed-Equity Solver
+
+**Context:**  
+Engine modules from Prompts 2.1–2.3 exist. PRD §9.5–9.7.
+
+**Task:**  
+Create two files:
+
+1. `src/lib/scenario-engine/priced-round.ts` exporting `computePricedRoundPricePerShare(input)` per PRD §9.5. Accepts override, falls back to `preMoneyValuation / denominatorShares`. Returns `{ pricePerShare, method, denominatorUsed }`.
+1. `src/lib/scenario-engine/fixed-equity-solver.ts` exporting `solveFixedEquityShares(input: { targetPercent: Decimal; existingShares: bigint })`. Implements PRD §9.7: `sharesToIssue = (targetPercent × existingShares) / (1 − targetPercent)`. Returns `{ sharesToIssue: bigint, formula: string, resultingPercent: Decimal }`. The `formula` string must show the substituted values: e.g. “(0.07 × 10,000,000) / (1 − 0.07) = 752,688 shares”.
+
+**Constraints:**
+
+- Both pure
+- Round `sharesToIssue` up to nearest whole share
+- Throw if `targetPercent >= 1` (would divide by zero)
+
+**Expected Output:**
+
+- Both modules + test files
+- Fixed-equity test includes a 7% accelerator case with a hand-verified numeric answer
+
+-----
+
+### PROMPT 2.5 — Calculation Engine: Option Pool Top-Up Solver
+
+**Context:**  
+Engine modules from Prompts 2.1–2.4 exist. PRD §9.8 specifies 4 modes.
+
+**Task:**  
+Create `src/lib/scenario-engine/pool-topup.ts` exporting `computePoolTopUp(input)` supporting all 4 modes from PRD §9.8. For `TO_TARGET_POST_MONEY_PERCENT`, implement the iterative solver: converge when `|targetPercent − currentPoolPercent| < ε` where ε = 1/postMoneyFD, or after 100 iterations. Return `{ additionalShares: bigint, iterations: number, converged: boolean, finalPoolPercent: Decimal, method: string }`.
+
+**Constraints:**
+
+- Solver must not loop infinitely; hard cap at 100 iterations, return `converged: false` with the best estimate if cap hit
+- The `method` string documents which mode ran and (for iterative) how many iterations
+
+**Expected Output:**
+
+- Module + test file with all 4 modes tested, including a convergence test for the iterative path and a non-converging edge case (target > 100%)
+
+-----
+
+### PROMPT 2.6 — Calculation Engine: Conversion Ordering Orchestrator
+
+**Context:**  
+All pure engine primitives exist (Prompts 2.1–2.5). Now compose them. PRD §9.9 names 5 ordering rules.
+
+**Task:**  
+Create `src/lib/scenario-engine/orchestrator.ts` exporting `runScenario(scenarioInput): ScenarioResult`. The orchestrator:
+
+1. Computes baseline FD (using 2.1)
+1. Applies the selected `conversionOrderingRule` (PRD §9.9) as a sequence of stages: note conversion → safe conversion → pool top-up → new money issuance (order varies by rule)
+1. At each stage, tracks the interim cap-table state and emits a stage snapshot
+1. Returns `{ stages: StageSnapshot[], finalOwnership: OwnershipRow[], convertibleDetails: ConvertibleDetail[], warnings: Warning[], formulaTrace: string[] }`
+
+Types for `StageSnapshot`, `OwnershipRow`, `ConvertibleDetail`, `Warning` go in `src/lib/scenario-engine/types.ts`.
+
+**Constraints:**
+
+- Pure; no DB or API imports
+- Orchestrator MUST call the primitive modules — do not re-implement their math inline
+- Each stage transition must be deterministic given identical inputs
+
+**Expected Output:**
+
+- Orchestrator + types file + test file
+- Test: run the full seed Scenario 2 (”$2M seed priced round with 10% pool top-up”) end-to-end and assert the final ownership percentages sum to 100.0000 ± 0.0001
+
+-----
+
+### VERIFICATION PROMPT V2 — Confirm Calculation Engine Complete (CRITICAL)
+
+**Context:**  
+Engine modules exist from Prompts 2.1–2.6. This is the **correctness gate** for the entire project. PRD §13.1 (golden-file corpus) and §13.2 (property tests).
+
+**Task:**  
+Create two test suites before proceeding:
+
+1. `/tests/golden/` with JSON fixtures for at least these 4 cases (hand-verified expected outputs):
+- Single cap-only SAFE converting at Series A (YC post-money SAFE user guide scenario)
+- Stacked 3 SAFEs with mixed cap/discount/MFN terms
+- Convertible note with 18 months of 8% simple interest + cap-only conversion
+- Accelerator 7% fixed-equity issuance against existing 10M shares
+1. `/tests/property/` with fast-check properties from PRD §13.2: ownership sums to 100 ± ε, `selectedPrice ≤ min(cap, discount)` under BEST_FOR_INVESTOR, pool top-up converges, accrued interest monotonic in time, determinism of scenario outputs.
+
+Run `pnpm exec vitest run` and confirm all golden + property tests pass.
+
+**Report:**
+
+- Any golden fixture where a hand-verified value doesn’t match engine output (release-blocker — investigate before proceeding)
+- Any property test that fails — describe the shrunk counterexample
+- Confirm: “Calculation engine correctness gate PASSED, ready for Layer 2 API routes” OR “BLOCKED — math bug in [module]”
+
+-----
+
+### PROMPT 2.7 — REST CRUD Routes: Companies + Stakeholders
+
+**Context:**  
+Engine complete. No API routes exist beyond `/api/health`. PRD §8 specifies the CRUD pattern.
+
+**Task:**  
+Create App Router route handlers under `src/app/api/`:
+
+- `companies/route.ts` — GET list, POST create
+- `companies/[id]/route.ts` — GET, PUT, DELETE
+- `stakeholders/route.ts` — GET list (with `?companyId=` filter), POST create
+- `stakeholders/[id]/route.ts` — GET, PUT, DELETE
+
+Each route:
+
+- Validates body/query with Zod schemas at `src/lib/validators/[entity].ts`
+- Returns `{ data, count }` on list, `{ data }` on single-entity success
+- Returns `{ error, code }` with status 400 on Zod failure, 404 on missing record, 500 on Prisma error
+
+**Constraints:**
+
+- Do NOT add auth middleware yet
+- Use shared `prisma` client from `src/lib/prisma.ts`
+- Share a `toApiError()` helper for consistent error responses
+
+**Expected Output:**
+
+- 4 route files + 2 validator files
+- `curl localhost:3000/api/companies` returns the seeded Acme Labs
+- Invalid POST body returns HTTP 400 with Zod issue details
+
+-----
+
+### PROMPT 2.8 — REST CRUD Routes: SecurityClasses, Holdings, OptionGrants
+
+**Context:**  
+Pattern established in Prompt 2.7. Three more entities follow the same shape.
+
+**Task:**  
+Replicate the 2.7 pattern for:
+
+- `security-classes` + `security-classes/[id]`
+- `holdings` + `holdings/[id]`
+- `option-grants` + `option-grants/[id]`
+
+Each with: GET list (with `?companyId=` filter), POST, GET one, PUT, DELETE. Zod validators at `src/lib/validators/[entity].ts`.
+
+**Constraints:**
+
+- Follow naming and error-handling conventions from Prompt 2.7 exactly
+- Do NOT duplicate validation logic — if two entities share a sub-schema (e.g. vesting config), put the sub-schema in `src/lib/validators/shared.ts`
+
+**Expected Output:**
+
+- 6 route files + 3 validator files + optional shared validator
+- Basic smoke test via `curl` for each GET list endpoint
+
+-----
+
+### PROMPT 2.9 — REST CRUD Routes: SAFEs, Notes, Scenarios
+
+**Context:**  
+Pattern established in Prompts 2.7–2.8. Final CRUD entities.
+
+**Task:**  
+Replicate pattern for:
+
+- `safes` + `safes/[id]`
+- `notes` + `notes/[id]`
+- `scenarios` + `scenarios/[id]` (with nested ScenarioRoundInput and ScenarioNewInstrumentInput creation in the POST/PUT bodies as a single transaction)
+
+For Scenario POST: accept `{ scenario, roundInput, newInstrumentInputs }` and create all three in one Prisma `$transaction`.
+
+**Constraints:**
+
+- Scenario validator must enforce the PRD §11 hard rules (cap-only discount must be null, etc.)
+- Do NOT run the calculation yet — that’s Prompt 2.10
+
+**Expected Output:**
+
+- 6 route files + 3 validator files
+- POST `/api/scenarios` with nested bodies creates Scenario + RoundInput + N NewInstrumentInputs atomically
+
+-----
+
+### PROMPT 2.10 — Scenario Calculate Endpoint
+
+**Context:**  
+CRUD complete. Engine exists. PRD §8 specifies `POST /api/scenarios/calculate` as a non-mutating endpoint.
+
+**Task:**  
+Create `src/app/api/scenarios/calculate/route.ts`:
+
+- Accepts POST body: full scenario input payload (does NOT require a saved Scenario ID)
+- Hydrates baseline cap table from `companyId` OR from provided `snapshotJson`
+- Calls `runScenario(...)` from `src/lib/scenario-engine/orchestrator.ts`
+- Returns `{ inputs, intermediates, ownershipTables, warnings, explanations }` exactly as the orchestrator emits
+- HTTP 400 on validator failure; HTTP 500 on engine throw with `{ error, code, details }`
+
+**Constraints:**
+
+- MUST NOT write anything to the database
+- Must complete under 500ms for a scenario with ≤20 SAFEs + 5 notes (PRD §12 non-functional)
+- Do NOT add auth yet
+
+**Expected Output:**
+
+- Route file
+- Integration test: calculate the seeded “$2M seed priced round” scenario and assert final ownership sums to 100 ± ε
+
+-----
+
+### PROMPT 2.11 — CSV Import/Export Routes
+
+**Context:**  
+CRUD + calculate exist. PRD M7: CSV per entity type.
+
+**Task:**  
+Create `src/app/api/companies/[id]/csv/[entityType]/route.ts` with:
+
+- GET — exports CSV for `entityType` (one of: stakeholders, holdings, option-grants, safes, notes). Content-Type: `text/csv`. Column headers match Carta’s standard export where possible.
+- POST — accepts multipart file upload, parses with `papaparse`, validates rows with entity Zod schema, creates records in a transaction. Returns `{ created: N, failed: [{row, error}] }`.
+
+Supported entity types enforced via enum in the route param validator.
+
+**Constraints:**
+
+- Do NOT fail the whole import on a single bad row — collect failures and report
+- Add `papaparse` to deps
+
+**Expected Output:**
+
+- Route file + helper for CSV parsing at `src/lib/csv.ts`
+- Round-trip test: export Acme stakeholders, re-import to a new company, counts match
+
+-----
+
+### PROMPT 2.12 — OCF Import/Export Routes
+
+**Context:**  
+CSV complete. PRD M6: OCF v1.2.0 interop.
+
+**Task:**  
+Create `src/app/api/companies/[id]/ocf/` with:
+
+- `export/route.ts` — GET returns a zip containing OCF-compliant JSON files (`Manifest.ocf.json`, `Stakeholders.ocf.json`, `StockClasses.ocf.json`, `Issuances.ocf.json`, `Transactions.ocf.json`). Field mapping per PRD §7.
+- `import/route.ts` — POST accepts zip upload, extracts, validates against vendored OCF JSON schemas (add `/vendor/ocf-schemas/` with the schema files from OCF v1.2.0), creates records in a single transaction. Returns `{ created: {..counts}, warnings: [..], errors: [..] }`.
+
+Add `jszip` + `ajv` to deps.
+
+**Constraints:**
+
+- Treat OCF import as destructive-overwrite (truncate + reinsert) OR merge — make this an explicit query param `mode=merge|overwrite`
+- Do NOT block import on unknown OCF fields; warn and skip
+
+**Expected Output:**
+
+- Both route files + OCF schemas under `vendor/ocf-schemas/`
+- Export of seeded Acme produces a zip that passes OCF schema validation externally
+
+-----
+
+### VERIFICATION PROMPT V3 — Confirm Backend Layer Complete
+
+**Context:**  
+Prompts 2.1–2.12 built: engine + 11-entity CRUD + calculate + CSV + OCF.
+
+**Task:**  
+Verify:
+
+1. `pnpm exec tsc --noEmit` — zero errors
+1. `pnpm exec vitest run` — all tests pass
+1. Smoke test each route group via curl against the running dev server
+1. Round-trip test: export Acme to OCF, re-import into a fresh empty company, compare key counts (stakeholders, SAFEs, notes should match)
+1. Calculate seeded Scenario 2 via POST /api/scenarios/calculate, confirm returned ownership sums to 100 ± 0.0001
+
+**Report:**
+
+- Any route missing from the PRD §8 surface
+- Any validator that accepts inputs the PRD §11 says should be rejected
+- Confirm: “Backend complete, ready for Layer 3” OR blocker
+
+-----
+
+# LAYER 3 — FRONTEND SHELL (STATIC UI)
+
+-----
+
+### PROMPT 3.1 — App Shell, Navigation, Route Structure
+
+**Context:**  
+Backend complete. Default Next.js layout exists. PRD §10 specifies UX conventions.
+
+**Task:**  
+Replace `src/app/layout.tsx` with a shell containing:
+
+- Top nav: “OpenCap Lite” wordmark (left), Company Selector dropdown (center — shows mock list for now), Settings icon (right)
+- Left sidebar with links: Dashboard, Cap Table, Scenarios, Settings
+- Main content area: `{children}`
+
+Create stub pages (each returns a single `<h1>` and a comment `// built in Prompt 3.X`):
+
+- `src/app/page.tsx` → Dashboard
+- `src/app/cap-table/page.tsx` with 7 sub-routes: ownership, stakeholders, holdings, option-grants, safes, notes, security-classes
+- `src/app/scenarios/page.tsx` (list)
+- `src/app/scenarios/[id]/page.tsx` (builder + results)
+- `src/app/scenarios/new/page.tsx` (builder)
+- `src/app/settings/page.tsx`
+
+**Constraints:**
+
+- Use shadcn/ui components (`Sidebar`, `Button`, `Select`) — do NOT hand-roll
+- Do NOT fetch data yet (Layer 4)
+- No forms yet (Layer 3 later prompts)
+
+**Expected Output:**
+
+- Navigating each link renders the correct stub page without console errors
+- Sidebar highlights the active route
+
+-----
+
+### PROMPT 3.2 — Dashboard Page with Placeholder Cards
+
+**Context:**  
+App shell exists (Prompt 3.1). PRD §6 M1 dashboard requirements + original spec “Dashboard” section.
+
+**Task:**  
+Build `src/app/page.tsx` with 8 summary cards in a responsive grid: total common shares, total preferred shares, total options granted, options exercised, outstanding SAFEs count, SAFEs total $, notes count, notes total principal. Each card shows: title, large number, small caption. Plus a “Fully diluted estimate” highlighted card and a “Create New Scenario” CTA button linking to `/scenarios/new`.
+
+Use **hardcoded placeholder numbers** for this prompt — wiring to the API is Prompt 4.1.
+
+**Constraints:**
+
+- Use shadcn `Card` primitive
+- Layout: 4-col on desktop, 2-col on tablet, 1-col on mobile via Tailwind grid
+- No data fetching yet
+
+**Expected Output:**
+
+- `/` renders 8 cards + the FD card + CTA
+- Visual check: looks professional, numbers are readable, CTA is prominent
+
+-----
+
+### PROMPT 3.3 — Cap Table Tables with TanStack (Static Data)
+
+**Context:**  
+Shell and dashboard exist. PRD §6 M1/M7 + original spec “Cap Table” subtabs.
+
+**Task:**  
+Build reusable `<DataTable>` wrapper at `src/components/tables/DataTable.tsx` using TanStack Table v8 with: column sorting, column filtering, pagination (25/page), sticky header, row actions dropdown (Edit / Duplicate / Delete — no wiring yet).
+
+Then build one table page per cap-table subtab (`/cap-table/stakeholders`, `.../holdings`, etc.) — 7 pages total. Each defines its columns from PRD §7 fields. Use hardcoded placeholder rows (3–5 rows each).
+
+**Constraints:**
+
+- Share the `DataTable` wrapper across all 7 tables
+- Do NOT fetch from API yet (Layer 4)
+- Row actions are wired to empty handler stubs for now
+
+**Expected Output:**
+
+- 7 working table pages with hardcoded data, sort/filter/paginate work on client
+- A “+ Add” button at the top right of each table (handler is a stub)
+
+-----
+
+### PROMPT 3.4 — Scenario Builder Two-Pane Layout (Static)
+
+**Context:**  
+Cap table tables exist. PRD §10.2 specifies two-pane layout.
+
+**Task:**  
+Build `src/app/scenarios/new/page.tsx` (and reuse in `[id]/page.tsx`) as a two-pane layout:
+
+**Left pane:** Scenario form with sections (use `Accordion` from shadcn for the advanced ones):
+
+- Basics (name, description, baseline mode)
+- Round (roundType, pre-money, new money, pps override, pool top-up mode + percent)
+- New instruments list (Add/Remove rows for SAFE / note / equity / accelerator templates)
+- Advanced (conversion ordering rule, safes-convert-using, notes-convert-using, include-pro-rata)
+
+Use React Hook Form + Zod resolver. Schemas go in `src/lib/validators/scenario.ts`.
+
+**Right pane:** Placeholder results panel showing static “Results will appear here” until Layer 4 wires it.
+
+**Constraints:**
+
+- Do NOT submit to API yet (Layer 4)
+- All inputs editable per PRD §10 UX rules (percent accepts “10” or “10%”, currency auto-formats on blur)
+- Default values reflect PRD §9 defaults
+
+**Expected Output:**
+
+- Form renders all editable fields from PRD §6 M2 + M4
+- Adding/removing a “new instrument” row works (RHF `useFieldArray`)
+- Form validation errors show inline on invalid input
+
+-----
+
+### PROMPT 3.5 — Scenario Results Page Template
+
+**Context:**  
+Scenario builder form exists (Prompt 3.4). PRD §10.3 requires a specific 6-section layout.
+
+**Task:**  
+Build `src/components/results/ScenarioResults.tsx` as a prop-driven component rendering (all with placeholder data for now):
+
+1. Summary cards row: pre-money, new money, pps, SAFE $ converted, note $ converted, pool top-up shares, post-money FD
+1. Ownership tables (4 stages: before, after-conversion, after-pool, final) using shared `<DataTable>`
+1. Convertible detail panel — one card per SAFE/note showing cap price, discount price, selected price, conversion $, shares issued, explanation
+1. Formula explanation section — scrollable pane showing all §9 formulas with placeholder `{values}`
+1. Warnings panel — shadcn `Alert` components, one per warning type
+1. Export buttons row (CSV ownership / CSV conversions / JSON — handlers are stubs for now)
+
+**Constraints:**
+
+- Component accepts a `ScenarioResult` prop (use the type from `src/lib/scenario-engine/types.ts`)
+- Render must work with zero data (empty-state for each section)
+- Do NOT wire exports yet
+
+**Expected Output:**
+
+- Embedded in the right pane of `/scenarios/new`, renders all 6 sections with empty or placeholder content
+
+-----
+
+### PROMPT 3.6 — Settings Page + Advanced Mode Toggle
+
+**Context:**  
+Builder + results exist. PRD §10.4 advanced mode toggle.
+
+**Task:**  
+Build `src/app/settings/page.tsx` with sections:
+
+- **Company settings** — legal name, jurisdiction, authorized shares, default currency
+- **Modeling assumptions defaults** — includeAllGrantedOptions, includeCancelledGrants, includeReservedUngranted, capDenominatorShares default, preMoneyDenominatorShares default
+- **Formatting** — currency locale, date format
+- **Advanced mode toggle** — single switch that controls visibility of advanced fields elsewhere
+
+Persist settings in a `Settings` JSON blob on the active Company (add a Json `settings` field to Company in a migration if needed — flag this as a schema additon).
+
+**Constraints:**
+
+- Do NOT change existing Company fields’ types
+- Advanced toggle state is globally accessible via a Zustand store or React context
+
+**Expected Output:**
+
+- Settings page renders and saves (saves come in Layer 4)
+- Advanced toggle visibly hides/shows advanced fields in the scenario builder
+
+-----
+
+### VERIFICATION PROMPT V4 — Confirm Frontend Shell Complete
+
+**Context:**  
+Prompts 3.1–3.6 built: navigation, dashboard, 7 cap-table tables, scenario builder two-pane, results template, settings.
+
+**Task:**  
+Verify:
+
+1. `pnpm exec tsc --noEmit` zero errors
+1. Navigate every route — no console errors
+1. Scenario form accepts input, shows Zod validation errors inline on bad input, `useFieldArray` add/remove works
+1. Advanced mode toggle visibly hides/shows fields
+1. Data tables sort and filter client-side on placeholder data
+
+**Report:**
+
+- Any gap from PRD §6 M1–M4 UI requirements
+- Any assumption about shadcn component usage that should be flagged
+- Confirm: “Frontend shell complete, ready for Layer 4” OR blocker
+
+-----
+
+# LAYER 4 — INTEGRATION (WIRE FRONTEND TO BACKEND)
+
+-----
+
+### PROMPT 4.1 — Wire Dashboard Cards to Real Aggregates
+
+**Context:**  
+Dashboard static (Prompt 3.2). Backend CRUD exists (Prompt 2.7+).
+
+**Task:**  
+Create `src/app/api/companies/[id]/summary/route.ts` that returns `{ commonShares, preferredShares, optionsGranted, optionsExercised, safeCount, safeTotal, noteCount, noteTotal, fullyDiluted }` computed from the DB.
+
+Update `src/app/page.tsx` to fetch this via React Server Component (async component) for the currently-selected company. Handle: no company selected (empty-state CTA to create one), loading, error.
+
+**Constraints:**
+
+- Do NOT use client-side fetching — this is a Server Component
+- Do NOT re-compute FD inline; call `computeFullyDiluted` from the engine
+
+**Expected Output:**
+
+- Dashboard shows real numbers for Acme after seed
+- Changing to an empty company shows empty state
+- Error state renders if API fails
+
+-----
+
+### PROMPT 4.2 — Wire Cap Table Tables to CRUD
+
+**Context:**  
+Static tables (Prompt 3.3) and CRUD routes (2.7–2.9) exist. This prompt wires all 7 cap-table pages.
+
+**Task:**  
+For each of the 7 cap-table subroutes:
+
+1. Fetch list via the entity’s GET route
+1. Wire row action “Edit” → opens shadcn `Dialog` with a form (RHF + Zod) bound to PUT route
+1. Wire “+ Add” → same Dialog component in create mode, bound to POST
+1. Wire “Delete” → shadcn `AlertDialog` confirmation → DELETE route
+1. “Duplicate” → POST with copy of current row data, minus id
+
+Create one shared `<EntityFormDialog>` component parameterized by entity type (stakeholder, holding, etc.) with entity-specific form schemas pulled from `src/lib/validators/`.
+
+**Constraints:**
+
+- Use `useSWR` for fetching + mutation; cache revalidates after each mutation
+- Every form field editable per PRD §6 M1 “Every relevant field must be editable”
+- Do NOT bypass validation — the form refuses to submit on Zod failure
+
+**Expected Output:**
+
+- All 7 tables read live data from DB
+- CRUD works end-to-end for each entity
+- Delete confirmation modal prevents accidental destruction
+
+-----
+
+### PROMPT 4.3 — Wire Scenario Builder Form to Calculate API (Live Preview)
+
+**Context:**  
+Scenario builder static (Prompt 3.4). `POST /api/scenarios/calculate` exists (Prompt 2.10). Results template exists (Prompt 3.5).
+
+**Task:**  
+Wire the builder:
+
+1. On any form change, debounce 300ms then POST form state to `/api/scenarios/calculate`
+1. Pipe the response into the `<ScenarioResults>` component on the right pane
+1. Show a subtle “calculating…” spinner in the results header while the request is in flight
+1. If calculate returns warnings, render them in the warnings panel
+1. If calculate throws 500, show a red error banner at the top of the results pane with the error message
+
+**Constraints:**
+
+- Do NOT save the scenario on preview — calculate is non-mutating per PRD
+- Debounce is 300ms per PRD §10.2
+- Preserve autosave-to-localStorage per PRD §10.5 (every 2s)
+
+**Expected Output:**
+
+- Editing pre-money updates results within ~500ms of last keystroke
+- Validation errors do not trigger calculate (form must be valid first)
+
+-----
+
+### PROMPT 4.4 — Wire Scenario Save + Scenario List Page
+
+**Context:**  
+Live preview works (Prompt 4.3). Scenario CRUD exists (Prompt 2.9).
+
+**Task:**
+
+1. Add “Save Scenario” button to the builder; on click, POST to `/api/scenarios` with the current form state, then redirect to `/scenarios/[id]`.
+1. Build `/scenarios/page.tsx` listing all scenarios for the active company in a table with columns: name, description, created date, round type, actions (Open / Duplicate / Delete).
+1. “Open” navigates to `/scenarios/[id]` which loads the saved scenario, renders the builder pre-filled, and runs calculate on mount.
+
+**Constraints:**
+
+- Saved scenarios must include `snapshotJson` of the cap table at save time (so results are reproducible)
+- Duplicate → new Scenario with “ (copy)” appended, same inputs
+
+**Expected Output:**
+
+- Save/list/open/duplicate all work against live DB
+- Opening an old scenario produces the same calculation result as when it was saved (assuming cap table unchanged)
+
+-----
+
+### PROMPT 4.5 — Wire CSV Import/Export Buttons
+
+**Context:**  
+CSV routes exist (Prompt 2.11). Cap-table pages have export placeholder buttons.
+
+**Task:**  
+In each of the 5 CSV-supporting cap-table subroutes (stakeholders, holdings, option-grants, safes, notes):
+
+1. Wire “Export CSV” button → GET CSV route → browser file download
+1. Wire “Import CSV” button → shadcn `Dialog` with file input → POST multipart → show `{ created, failed }` summary → refetch the list on close
+
+**Constraints:**
+
+- Download uses a hidden `<a>` with blob URL
+- Import dialog shows failed rows in a scrollable list with row number + error
+
+**Expected Output:**
+
+- Round-trip works: export Acme stakeholders, import into fresh test company, all records present
+
+-----
+
+### PROMPT 4.6 — Wire OCF Import/Export + Scenario Results Exports
+
+**Context:**  
+OCF routes (Prompt 2.12) and Scenario Results Export buttons (Prompt 3.5) exist.
+
+**Task:**
+
+1. In Settings or Cap Table overview, add “Export OCF (.zip)” and “Import OCF (.zip)” buttons wired to the OCF routes.
+1. In Scenario Results, wire the 3 export buttons:
+- “Export Ownership CSV” → client-side CSV generation from the rendered `finalOwnership` rows
+- “Export Conversions CSV” → client-side CSV from `convertibleDetails`
+- “Export Full Scenario (JSON)” → browser download of the full calculate response object
+
+**Constraints:**
+
+- OCF import mode selector (`merge | overwrite`) shown as radio before upload
+- JSON export filename: `opencaplite-scenario-{name}-{YYYY-MM-DD}.json`
+
+**Expected Output:**
+
+- Exported OCF zip validates against OCF schemas externally
+- Scenario JSON export re-importable into a fresh scenario (validate shape matches calculate input)
+
+-----
+
+### VERIFICATION PROMPT V5 — Confirm Integration Layer Complete
+
+**Context:**  
+Prompts 4.1–4.6 wired all UI to backend.
+
+**Task:**  
+End-to-end smoke test via the browser against the running dev server:
+
+1. Dashboard shows Acme numbers
+1. Create a new stakeholder via cap table; appears in list + dashboard updates
+1. Build a scenario: $2M seed at $8M pre-money, 10% pool top-up; preview updates live
+1. Save scenario; reopen from list; calculations reproduce exactly
+1. Export Acme to OCF; re-import to a fresh empty company; key counts match
+1. Export ownership CSV from a scenario; verify columns + row count match UI
+
+**Report:**
+
+- Any flow that loads > 1.5s on localhost
+- Any mutation that doesn’t revalidate the relevant list
+- Confirm: “Integration complete, ready for Layer 5” OR blocker
+
+-----
+
+# LAYER 5 — POLISH
+
+-----
+
+### PROMPT 5.1 — Warnings Panel + Authorized-Shares Check
+
+**Context:**  
+Results page has warnings panel slot (Prompt 3.5). Engine emits warnings (Prompt 2.6). PRD §6 M5.
+
+**Task:**  
+Implement all warning types from PRD §11 “soft” rules:
+
+- Authorized shares exceeded (post-scenario FD > company authorized)
+- Unresolved MFN SAFEs (any instrument with `selectedMethod === 'UNRESOLVED_MFN'`)
+- Note past maturity (maturityDate < scenario round close date)
+- Inconsistent round inputs (pps ≤ 0 or post-money % > 100)
+- Negative available pool
+
+Each warning renders as a shadcn `Alert variant="warning"` with a specific message and, where applicable, a link to the entity that caused it.
+
+**Constraints:**
+
+- Warnings are informational only — NEVER block calculation
+- Order warnings by severity (critical > high > medium)
+
+**Expected Output:**
+
+- Creating a scenario with a past-maturity note shows a visible warning with the note’s name
+- Hiding all warnings when none apply (empty panel not rendered)
+
+-----
+
+### PROMPT 5.2 — Audit Log on All Mutations
+
+**Context:**  
+CRUD routes exist (Prompts 2.7–2.9). PRD M10 requires AuditLog on every mutation.
+
+**Task:**  
+Create middleware helper `src/lib/audit.ts` exporting `withAudit(handler, { entityType })` that wraps a route handler. On successful mutation:
+
+1. Capture `before` (current DB state for UPDATE/DELETE) and `after` (new DB state for CREATE/UPDATE)
+1. Write AuditLog row with companyId, entityType, entityId, action, beforeJson, afterJson
+
+Apply the wrapper to every POST/PUT/DELETE route EXCEPT `/api/scenarios/calculate` (non-mutating, no audit).
+
+**Constraints:**
+
+- Do NOT audit scenario calculations (per PRD — scenarios are sandboxed)
+- Audit writes must not block the response on failure (fire-and-forget with error log)
+
+**Expected Output:**
+
+- Every mutation creates an AuditLog row visible in Prisma Studio
+- Calculate does NOT create audit rows
+- Route tests still pass
+
+-----
+
+### PROMPT 5.3 — Inline Form Validation UX + Accessibility
+
+**Context:**  
+Forms exist across cap-table dialogs and scenario builder. PRD §10 UX rules + §12 accessibility.
+
+**Task:**
+
+1. Every form field has an explicit `<Label htmlFor>` + `aria-describedby` linking to its error message
+1. Zod error messages rewritten to be human-friendly (e.g. “Share count must be 0 or greater” not “Number must be greater than or equal to 0”)
+1. Submit button disabled while form is invalid or in-flight
+1. All dialogs close on Escape; focus returns to the trigger element
+1. Tab order through the scenario builder is logical (form fields top-to-bottom, then save button)
+1. Numeric inputs: percent accepts “10” or “10%”; currency formats on blur (e.g. “1000000” → “$1,000,000”)
+
+**Constraints:**
+
+- Use existing shadcn primitives; do NOT hand-roll focus management
+- Do NOT introduce a new forms library
+
+**Expected Output:**
+
+- Keyboard-only user can create a stakeholder, build a scenario, save it
+- Screen reader announces each validation error on invalid submit
+- Color-contrast check passes WCAG AA on all interactive text
+
+-----
+
+### PROMPT 5.4 — KNOWN_LIMITATIONS.md + Disclaimer Footer
+
+**Context:**  
+PRD §13.3 and §13.4 require explicit documentation and a footer disclaimer.
+
+**Task:**
+
+1. Create `/docs/KNOWN_LIMITATIONS.md` listing every case from PRD §13.3 explicitly.
+1. Link it from README and from the in-app Settings page (new “About & Limitations” section).
+1. Add the §13.4 disclaimer text as a persistent footer on every Scenario Results page and in the top-level README.
+
+**Constraints:**
+
+- Disclaimer text verbatim from PRD §13.4
+- KNOWN_LIMITATIONS.md uses a checklist format so each item can be marked as “addressed” in future releases
+
+**Expected Output:**
+
+- File exists, is linked from 3 places, disclaimer visible on every result page
+
+-----
+
+### PROMPT 5.5 — Deploy-to-{Railway,Render,Fly} Buttons + README
+
+**Context:**  
+Docker works (Prompt 0.2). PRD M9 + §14.2.
+
+**Task:**
+
+1. Create `fly.toml` with single-machine + managed Postgres config
+1. Create `render.yaml` declaring the web service + managed Postgres
+1. Create `railway.json` template (or link to Railway’s template flow)
+1. Update README with working deploy buttons (Railway, Render, Fly) — each triggers the one-click flow
+1. Add a screenshot or animated GIF placeholder to README showing the scenario builder
+
+**Constraints:**
+
+- Each button must complete provisioning in ≤10 minutes per PRD M9
+- Do NOT hard-code secrets in any config file
+
+**Expected Output:**
+
+- README has 3 working buttons
+- Clicking Railway button (against a test account) provisions a working app within 10 min
+
+-----
+
+### VERIFICATION PROMPT V6 — Confirm Polish Layer Complete
+
+**Context:**  
+Prompts 5.1–5.5 complete. Approaching v1.0.
+
+**Task:**
+
+1. All P0 acceptance criteria from PRD §6 M1–M10 explicitly checked — walk through each with browser + curl
+1. Keyboard-only navigation test: create a scenario end-to-end without touching the mouse
+1. Run full test suite: `pnpm exec vitest run && pnpm exec playwright test`
+1. Confirm KNOWN_LIMITATIONS.md lists at least all 8 items from PRD §13.3
+1. Confirm disclaimer visible on results page + README
+
+**Report:**
+
+- Any P0 criterion not MET with specific gap
+- Any P1 (S1–S6) criterion that’s cheap to finish before v1.0
+- Confirm: “Polish complete, ready for Final Verification” OR blocker
+
+-----
+
+# LAYER 6 — FINAL VERIFICATION
+
+-----
+
+### FINAL VERIFICATION PROMPT — Full Spec Review
+
+**Context:**  
+All 36 build prompts complete. Full file list expected:
+
+- `prisma/schema.prisma` + migration + `prisma/seed.ts`
+- `src/lib/scenario-engine/` (7 modules: fully-diluted, note-interest, conversion-pricing, priced-round, fixed-equity-solver, pool-topup, orchestrator, types)
+- `src/lib/validators/` (one per entity + shared)
+- `src/lib/formatters/` (currency, percent, date)
+- `src/lib/prisma.ts`, `src/lib/csv.ts`, `src/lib/audit.ts`
+- `src/app/api/` — 30+ route files covering CRUD for 9 entities + calculate + csv + ocf + health + summary + telemetry
+- `src/app/` — pages for dashboard, 7 cap-table subroutes, scenario list + new + [id], settings
+- `src/components/tables/DataTable.tsx`, `src/components/forms/EntityFormDialog.tsx`, `src/components/results/ScenarioResults.tsx`
+- `/tests/golden/`, `/tests/property/`, Playwright specs
+- Docker: `Dockerfile`, `docker-compose.yml`, `.env.example`, `fly.toml`, `render.yaml`, `railway.json`
+- Docs: `README.md`, `/docs/KNOWN_LIMITATIONS.md`, `/docs/OCF_MAPPING.md`, disclaimer text
+
+**Task:**  
+Perform a complete audit against PRD §6 MoSCoW acceptance criteria. For each item, confirm MET or NOT MET with evidence (test file reference, route path, screenshot description):
+
+**P0 Must-Have:**
+
+- [ ] M1 — All 11 entities have CRUD; schema matches PRD §7
+- [ ] M2 — Calculation engine passes golden-file corpus (at least 4 fixtures) + all property tests
+- [ ] M3 — Scenario sandbox: confirmed zero cap-table mutations from `/api/scenarios/calculate`
+- [ ] M4 — All ordering rules + safesConvertUsing + notesConvertUsing selectable in UI and respected by engine
+- [ ] M5 — All 5 warning types surface on results page
+- [ ] M6 — OCF export validates against vendored v1.2.0 schemas; import round-trips
+- [ ] M7 — CSV import/export works for 5 entity types
+- [ ] M8 — `docker compose up` produces working app in <60s
+- [ ] M9 — Railway + Render + Fly deploy buttons functional
+- [ ] M10 — AuditLog row created on every mutation; never on calculate
+
+**P0 Quality Gates:**
+
+- [ ] Zero TypeScript errors: `pnpm exec tsc --noEmit`
+- [ ] Zero console errors on main flows: browser smoke
+- [ ] All Vitest unit, property, and golden tests pass
+- [ ] All Playwright E2E tests pass
+- [ ] Scenario calculation < 500ms for ≤20 SAFEs + 5 notes
+- [ ] WCAG AA contrast on interactive elements
+- [ ] KNOWN_LIMITATIONS.md + disclaimer in place
+- [ ] README has deploy buttons + screenshots
+
+**Deliver:**  
+A table of MET / NOT MET for each item, and a prioritized list of any gaps. Any P0 gap blocks v1.0 release.
+
+-----
+
+## Post-Build Follow-ups (for Asad to decide after v1.0)
+
+1. **npm package of the calculation engine** — publish `@opencaplite/engine` for other OSS cap-table tools to embed
+1. **Community demo instance deploy** (`demo.opencaplite.io`) with nightly reset
+1. **P1 items from PRD §6** — scenario comparison UI, vesting visualizer, accelerator templates
+1. **Telemetry dashboard** — aggregate opt-in heartbeats for “active self-hoster” count
+1. **Accelerator partnership outreach** — your success metric needs ≥1 program recommending it
+
+-----
+
+**End of Build Prompts.**
