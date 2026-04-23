@@ -169,35 +169,293 @@ function computeDenominator(
   );
 }
 
-function convertSafes(
-  state: WorkingState,
+/**
+ * MFN ("most favored nation") sibling inference: if a SAFE/note is MFN and has
+ * no explicit cap or discount, inherit the best-for-investor terms from its
+ * non-MFN siblings of the same type — lowest non-null cap and highest non-null
+ * discount across siblings. This matches common legal practice: the MFN right
+ * is only meaningful if the holder can actually pull in sibling terms.
+ *
+ * Returns a new array with effective (post-inference) copies. Does not mutate
+ * inputs. Emits a "high" warning if inference applied.
+ */
+function inferMfnTermsForSafes(
   safes: BaselineSAFE[],
+  warnings: Warning[],
+): BaselineSAFE[] {
+  const siblingCaps: Decimal[] = [];
+  const siblingDiscounts: Decimal[] = [];
+  for (const s of safes) {
+    if (s.status !== "OUTSTANDING") continue;
+    if (s.mfn) continue;
+    if (s.valuationCap) siblingCaps.push(new Decimal(s.valuationCap));
+    if (s.discountPercent) siblingDiscounts.push(new Decimal(s.discountPercent));
+  }
+  const bestCap = siblingCaps.length > 0
+    ? siblingCaps.reduce((m, c) => (c.lt(m) ? c : m))
+    : null;
+  const bestDiscount = siblingDiscounts.length > 0
+    ? siblingDiscounts.reduce((m, d) => (d.gt(m) ? d : m))
+    : null;
+
+  return safes.map((s) => {
+    if (!s.mfn) return s;
+    const hasOwnTerms =
+      (s.valuationCap != null) ||
+      (s.discountPercent != null && !new Decimal(s.discountPercent).isZero());
+    if (hasOwnTerms) return s;
+    if (bestCap == null && bestDiscount == null) return s; // stays unresolved
+    warnings.push({
+      code: "MFN_INFERRED",
+      severity: "medium",
+      message: `SAFE "${s.label ?? s.id}" MFN terms inferred from siblings: ${bestCap ? `cap=${bestCap.toString()}` : "no cap"}${bestCap && bestDiscount ? ", " : ""}${bestDiscount ? `discount=${bestDiscount.toString()}%` : ""}`,
+      entityType: "SAFE",
+      entityId: s.id,
+    });
+    return {
+      ...s,
+      valuationCap: bestCap ? bestCap.toString() : null,
+      discountPercent: bestDiscount ? bestDiscount.toString() : null,
+    };
+  });
+}
+
+function inferMfnTermsForNotes(
+  notes: BaselineNote[],
+  warnings: Warning[],
+): BaselineNote[] {
+  const siblingCaps: Decimal[] = [];
+  const siblingDiscounts: Decimal[] = [];
+  for (const n of notes) {
+    if (n.status !== "OUTSTANDING") continue;
+    if (n.mfn) continue;
+    if (n.valuationCap) siblingCaps.push(new Decimal(n.valuationCap));
+    if (n.discountPercent) siblingDiscounts.push(new Decimal(n.discountPercent));
+  }
+  const bestCap = siblingCaps.length > 0
+    ? siblingCaps.reduce((m, c) => (c.lt(m) ? c : m))
+    : null;
+  const bestDiscount = siblingDiscounts.length > 0
+    ? siblingDiscounts.reduce((m, d) => (d.gt(m) ? d : m))
+    : null;
+
+  return notes.map((n) => {
+    if (!n.mfn) return n;
+    const hasOwnTerms =
+      (n.valuationCap != null) ||
+      (n.discountPercent != null && !new Decimal(n.discountPercent).isZero());
+    if (hasOwnTerms) return n;
+    if (bestCap == null && bestDiscount == null) return n;
+    warnings.push({
+      code: "MFN_INFERRED",
+      severity: "medium",
+      message: `Note "${n.label ?? n.id}" MFN terms inferred from siblings: ${bestCap ? `cap=${bestCap.toString()}` : "no cap"}${bestCap && bestDiscount ? ", " : ""}${bestDiscount ? `discount=${bestDiscount.toString()}%` : ""}`,
+      entityType: "NOTE",
+      entityId: n.id,
+    });
+    return {
+      ...n,
+      valuationCap: bestCap ? bestCap.toString() : null,
+      discountPercent: bestDiscount ? bestDiscount.toString() : null,
+    };
+  });
+}
+
+/**
+ * Convert SAFEs and notes together, with a fixed-point iteration so YC 2018
+ * post-money SAFEs honor the self-referential "Company Capitalization"
+ * definition that includes all converting securities.
+ *
+ * - Pre-money SAFEs (YC 2013) use capDenomPreMoney (constant — baseline +
+ *   projected pool top-up, excludes other convertibles). Computed once.
+ * - Post-money SAFEs (YC 2018) and notes share a post-money-style denominator
+ *   that equals capDenomPostMoney PLUS the current estimate of all converting
+ *   shares (pre-money SAFE shares + other post-money SAFE shares + note
+ *   shares). Iterated until the total stabilizes.
+ */
+function convertConvertibles(
+  state: WorkingState,
+  safesRaw: BaselineSAFE[],
+  notesRaw: BaselineNote[],
+  accrualDate: Date,
   roundPPS: Decimal | null,
   capDenomPostMoney: bigint,
   capDenomPreMoney: bigint,
-  mode: "BEST_FOR_INVESTOR" | "CAP_ONLY" | "DISCOUNT_ONLY" | "USER_SELECTED_PER_SAFE",
+  safesMode: "BEST_FOR_INVESTOR" | "CAP_ONLY" | "DISCOUNT_ONLY" | "USER_SELECTED_PER_SAFE",
+  notesMode: "BEST_FOR_INVESTOR" | "CAP_ONLY" | "DISCOUNT_ONLY" | "USER_SELECTED_PER_NOTE",
   details: ConvertibleDetail[],
   warnings: Warning[],
   formulaTrace: string[],
 ): void {
   if (roundPPS == null) return;
+
+  const safes = inferMfnTermsForSafes(safesRaw, warnings);
+  const notes = inferMfnTermsForNotes(notesRaw, warnings);
+
+  // Precompute note accruals (interest doesn't depend on pricing denominator).
+  const noteAccruals = new Map<string, ReturnType<typeof computeAccruedInterest>>();
+  for (const n of notes) {
+    if (n.status !== "OUTSTANDING") continue;
+    noteAccruals.set(
+      n.id,
+      computeAccruedInterest({
+        principal: n.principal,
+        annualInterestRatePercent: n.annualInterestRatePercent,
+        interestType: n.interestType,
+        compoundingFrequencyPerYear: n.compoundingFrequencyPerYear,
+        issueDate: new Date(n.issueDate),
+        accrualCutoffDate: accrualDate,
+        dayCountConvention: n.dayCountConvention ?? "ACT_365",
+      }),
+    );
+    if (n.maturityDate) {
+      const mat = new Date(n.maturityDate);
+      if (mat < accrualDate) {
+        warnings.push({
+          code: "NOTE_PAST_MATURITY",
+          severity: "medium",
+          message: `Note "${n.label ?? n.id}" matured on ${n.maturityDate} before round close date`,
+          entityType: "NOTE",
+          entityId: n.id,
+        });
+      }
+    }
+  }
+
+  // Pre-money SAFE shares are deterministic (denom does not depend on other
+  // convertibles). Compute once.
+  const preMoneyResults = new Map<
+    string,
+    { pricing: ReturnType<typeof computeConversionPrice>; shares: bigint }
+  >();
+  let preMoneyTotalShares = 0n;
   for (const s of safes) {
     if (s.status !== "OUTSTANDING") continue;
+    if (s.postMoney) continue;
     const effectiveMode =
-      mode === "USER_SELECTED_PER_SAFE" ? "USER_SELECTED" : mode;
-    // YC 2018 post-money SAFE: cap ÷ company capitalization (existing pool, excludes the new pool top-up).
-    // YC 2013 pre-money SAFE: cap ÷ pre-money FD including the new pool top-up.
-    const capDenomShares = s.postMoney ? capDenomPostMoney : capDenomPreMoney;
+      safesMode === "USER_SELECTED_PER_SAFE" ? "USER_SELECTED" : safesMode;
     const pricing = computeConversionPrice({
       valuationCap: s.valuationCap,
       discountPercent: s.discountPercent,
       mfn: s.mfn,
-      capDenominatorShares: capDenomShares,
+      capDenominatorShares: capDenomPreMoney,
       roundPricePerShare: roundPPS,
       mode: effectiveMode,
       userSelectedMethod: s.userSelectedMethod ?? null,
     });
+    let shares = 0n;
+    if (pricing.selectedMethod !== "UNRESOLVED_MFN") {
+      shares = BigInt(
+        new Decimal(s.purchaseAmount).div(pricing.effectivePrice!).floor().toFixed(0),
+      );
+    }
+    preMoneyResults.set(s.id, { pricing, shares });
+    preMoneyTotalShares += shares;
+  }
 
+  // Notes use the base "company capitalization" (capDenomPostMoney) — no
+  // self-reference, matching Cooley/Fenwick standard note templates where the
+  // denominator at conversion excludes shares issued from the note itself.
+  // Notes do NOT iterate; post-money SAFEs see them in their denom via
+  // noteTotalShares (pre-computed below).
+  const noteResults = new Map<
+    string,
+    { pricing: ReturnType<typeof computeConversionPrice>; shares: bigint }
+  >();
+  let noteTotalShares = 0n;
+  for (const n of notes) {
+    if (n.status !== "OUTSTANDING") continue;
+    const accrual = noteAccruals.get(n.id)!;
+    const effectiveMode =
+      notesMode === "USER_SELECTED_PER_NOTE" ? "USER_SELECTED" : notesMode;
+    const pricing = computeConversionPrice({
+      valuationCap: n.valuationCap,
+      discountPercent: n.discountPercent,
+      mfn: n.mfn,
+      capDenominatorShares: capDenomPostMoney,
+      roundPricePerShare: roundPPS,
+      mode: effectiveMode,
+      userSelectedMethod: n.userSelectedMethod ?? null,
+    });
+    let shares = 0n;
+    if (pricing.selectedMethod !== "UNRESOLVED_MFN") {
+      shares = BigInt(
+        accrual.totalConversionAmount.div(pricing.effectivePrice!).floor().toFixed(0),
+      );
+    }
+    noteResults.set(n.id, { pricing, shares });
+    noteTotalShares += shares;
+  }
+
+  // Fixed-point iteration for post-money SAFEs only — YC 2018 "Company
+  // Capitalization" is self-referential (includes this SAFE and all other
+  // Converting Securities).
+  // iterDenomBase = capDenomPostMoney + preMoneyTotalShares + noteTotalShares.
+  // iterDenom = iterDenomBase + sum(current post-money SAFE shares).
+  const iterDenomBase =
+    capDenomPostMoney + preMoneyTotalShares + noteTotalShares;
+  let iterDenom = iterDenomBase;
+  let previousTotal = -1n;
+  const MAX_ITER = 50;
+  let iterations = 0;
+
+  let postMoneyResults = new Map<
+    string,
+    { pricing: ReturnType<typeof computeConversionPrice>; shares: bigint }
+  >();
+
+  for (iterations = 1; iterations <= MAX_ITER; iterations++) {
+    postMoneyResults = new Map();
+    let total = 0n;
+
+    for (const s of safes) {
+      if (s.status !== "OUTSTANDING") continue;
+      if (!s.postMoney) continue;
+      const effectiveMode =
+        safesMode === "USER_SELECTED_PER_SAFE" ? "USER_SELECTED" : safesMode;
+      const pricing = computeConversionPrice({
+        valuationCap: s.valuationCap,
+        discountPercent: s.discountPercent,
+        mfn: s.mfn,
+        capDenominatorShares: iterDenom,
+        roundPricePerShare: roundPPS,
+        mode: effectiveMode,
+        userSelectedMethod: s.userSelectedMethod ?? null,
+      });
+      let shares = 0n;
+      if (pricing.selectedMethod !== "UNRESOLVED_MFN") {
+        shares = BigInt(
+          new Decimal(s.purchaseAmount).div(pricing.effectivePrice!).floor().toFixed(0),
+        );
+      }
+      postMoneyResults.set(s.id, { pricing, shares });
+      total += shares;
+    }
+
+    if (total === previousTotal) break; // converged
+    previousTotal = total;
+    iterDenom = iterDenomBase + total;
+  }
+
+  if (iterations > MAX_ITER) {
+    warnings.push({
+      code: "POST_MONEY_SAFE_NON_CONVERGENT",
+      severity: "high",
+      message: `Post-money SAFE / note denominator solver did not converge within ${MAX_ITER} iterations`,
+    });
+  }
+  if (iterations > 1 && safes.some((s) => s.postMoney && s.status === "OUTSTANDING")) {
+    formulaTrace.push(
+      `Post-money SAFE denominator solver converged in ${iterations} iteration(s); final denom = ${iterDenom.toString()}`,
+    );
+  }
+
+  const applySafe = (
+    s: BaselineSAFE,
+    pricing: ReturnType<typeof computeConversionPrice>,
+    shares: bigint,
+    denom: bigint,
+  ) => {
     if (pricing.selectedMethod === "UNRESOLVED_MFN") {
       warnings.push({
         code: "MFN_UNRESOLVED",
@@ -221,12 +479,10 @@ function convertSafes(
         sharesIssued: 0n,
         explanation: pricing.explanation,
       });
-      continue;
+      return;
     }
-
     const price = pricing.effectivePrice!;
     const purchase = new Decimal(s.purchaseAmount);
-    const shares = BigInt(purchase.div(price).floor().toFixed(0));
     const cur = state.convertedBySafe.get(s.id) ?? {
       stakeholderName: s.stakeholderName,
       label: s.label ?? "SAFE",
@@ -234,7 +490,6 @@ function convertSafes(
     };
     cur.shares += shares;
     state.convertedBySafe.set(s.id, cur);
-
     details.push({
       instrumentType: "SAFE",
       instrumentId: s.id,
@@ -252,60 +507,17 @@ function convertSafes(
     });
     const safeType = s.postMoney ? "post-money" : "pre-money";
     formulaTrace.push(
-      `SAFE ${s.label ?? s.id} (${safeType}, capDenom=${capDenomShares.toString()}): ${purchase.toFixed(2)} / ${price.toFixed(6)} = ${shares.toString()} shares (${pricing.explanation})`,
+      `SAFE ${s.label ?? s.id} (${safeType}, capDenom=${denom.toString()}): ${purchase.toFixed(2)} / ${price.toFixed(6)} = ${shares.toString()} shares (${pricing.explanation})`,
     );
-  }
-}
+  };
 
-function convertNotes(
-  state: WorkingState,
-  notes: BaselineNote[],
-  accrualDate: Date,
-  roundPPS: Decimal | null,
-  capDenomShares: bigint,
-  mode: "BEST_FOR_INVESTOR" | "CAP_ONLY" | "DISCOUNT_ONLY" | "USER_SELECTED_PER_NOTE",
-  details: ConvertibleDetail[],
-  warnings: Warning[],
-  formulaTrace: string[],
-): void {
-  if (roundPPS == null) return;
-  for (const n of notes) {
-    if (n.status !== "OUTSTANDING") continue;
-    const issueDate = new Date(n.issueDate);
-    const interest = computeAccruedInterest({
-      principal: n.principal,
-      annualInterestRatePercent: n.annualInterestRatePercent,
-      interestType: n.interestType,
-      compoundingFrequencyPerYear: n.compoundingFrequencyPerYear,
-      issueDate,
-      accrualCutoffDate: accrualDate,
-    });
-
-    if (n.maturityDate) {
-      const mat = new Date(n.maturityDate);
-      if (mat < accrualDate) {
-        warnings.push({
-          code: "NOTE_PAST_MATURITY",
-          severity: "medium",
-          message: `Note "${n.label ?? n.id}" matured on ${n.maturityDate} before round close date`,
-          entityType: "NOTE",
-          entityId: n.id,
-        });
-      }
-    }
-
-    const effectiveMode =
-      mode === "USER_SELECTED_PER_NOTE" ? "USER_SELECTED" : mode;
-    const pricing = computeConversionPrice({
-      valuationCap: n.valuationCap,
-      discountPercent: n.discountPercent,
-      mfn: n.mfn,
-      capDenominatorShares: capDenomShares,
-      roundPricePerShare: roundPPS,
-      mode: effectiveMode,
-      userSelectedMethod: n.userSelectedMethod ?? null,
-    });
-
+  const applyNote = (
+    n: BaselineNote,
+    pricing: ReturnType<typeof computeConversionPrice>,
+    shares: bigint,
+    denom: bigint,
+  ) => {
+    const accrual = noteAccruals.get(n.id)!;
     if (pricing.selectedMethod === "UNRESOLVED_MFN") {
       warnings.push({
         code: "MFN_UNRESOLVED",
@@ -320,8 +532,8 @@ function convertNotes(
         stakeholderName: n.stakeholderName,
         label: n.label ?? n.id,
         principal: new Decimal(n.principal),
-        accruedInterest: interest.accruedInterest,
-        totalConversionAmount: interest.totalConversionAmount,
+        accruedInterest: accrual.accruedInterest,
+        totalConversionAmount: accrual.totalConversionAmount,
         capPrice: pricing.capPrice,
         discountPrice: pricing.discountPrice,
         selectedPrice: null,
@@ -329,11 +541,9 @@ function convertNotes(
         sharesIssued: 0n,
         explanation: pricing.explanation,
       });
-      continue;
+      return;
     }
-
     const price = pricing.effectivePrice!;
-    const shares = BigInt(interest.totalConversionAmount.div(price).floor().toFixed(0));
     const cur = state.convertedByNote.get(n.id) ?? {
       stakeholderName: n.stakeholderName,
       label: n.label ?? "Note",
@@ -341,15 +551,14 @@ function convertNotes(
     };
     cur.shares += shares;
     state.convertedByNote.set(n.id, cur);
-
     details.push({
       instrumentType: "NOTE",
       instrumentId: n.id,
       stakeholderName: n.stakeholderName,
       label: n.label ?? n.id,
       principal: new Decimal(n.principal),
-      accruedInterest: interest.accruedInterest,
-      totalConversionAmount: interest.totalConversionAmount,
+      accruedInterest: accrual.accruedInterest,
+      totalConversionAmount: accrual.totalConversionAmount,
       capPrice: pricing.capPrice,
       discountPrice: pricing.discountPrice,
       selectedPrice: price,
@@ -358,8 +567,25 @@ function convertNotes(
       explanation: pricing.explanation,
     });
     formulaTrace.push(
-      `Note ${n.label ?? n.id}: accrued ${interest.accruedInterest.toFixed(2)}, total ${interest.totalConversionAmount.toFixed(2)} / ${price.toFixed(6)} = ${shares.toString()} shares`,
+      `Note ${n.label ?? n.id} (capDenom=${denom.toString()}, ${accrual.method}): accrued ${accrual.accruedInterest.toFixed(2)}, total ${accrual.totalConversionAmount.toFixed(2)} / ${price.toFixed(6)} = ${shares.toString()} shares`,
     );
+  };
+
+  // Apply in deterministic source order: SAFEs first, then notes.
+  for (const s of safes) {
+    if (s.status !== "OUTSTANDING") continue;
+    if (!s.postMoney) {
+      const r = preMoneyResults.get(s.id)!;
+      applySafe(s, r.pricing, r.shares, capDenomPreMoney);
+    } else {
+      const r = postMoneyResults.get(s.id)!;
+      applySafe(s, r.pricing, r.shares, iterDenom);
+    }
+  }
+  for (const n of notes) {
+    if (n.status !== "OUTSTANDING") continue;
+    const r = noteResults.get(n.id)!;
+    applyNote(n, r.pricing, r.shares, capDenomPostMoney);
   }
 }
 
@@ -519,23 +745,15 @@ export function runScenario(input: ScenarioInput): ScenarioResult {
 
   const doConvertibles = () => {
     if (pricePerShare == null) return;
-    convertSafes(
+    convertConvertibles(
       state,
       input.baseline.safes,
-      pricePerShare,
-      capDenom,
-      capDenomPreMoney,
-      round.safesConvertUsing,
-      details,
-      warnings,
-      formulaTrace,
-    );
-    convertNotes(
-      state,
       input.baseline.notes,
       accrualDate,
       pricePerShare,
       capDenom,
+      capDenomPreMoney,
+      round.safesConvertUsing,
       round.notesConvertUsing,
       details,
       warnings,

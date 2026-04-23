@@ -71,4 +71,74 @@ describe("computeAccruedInterest", () => {
       }),
     ).toThrow(/compoundingFrequencyPerYear/);
   });
+
+  it("ACT/360 convention: 100000 @ 8% for 360 actual days = 8000 exactly", () => {
+    const r = computeAccruedInterest({
+      principal: "100000",
+      annualInterestRatePercent: "8",
+      interestType: "SIMPLE",
+      compoundingFrequencyPerYear: null,
+      issueDate: new Date("2025-01-01"),
+      accrualCutoffDate: new Date("2025-12-27"), // exactly 360 actual days
+      dayCountConvention: "ACT_360",
+    });
+    expect(r.daysElapsed).toBe(360);
+    expect(r.accruedInterest.toFixed(2)).toBe("8000.00");
+  });
+
+  it("ACT/360 accrues more than ACT/365 for the same period", () => {
+    const args = {
+      principal: "100000",
+      annualInterestRatePercent: "10",
+      interestType: "SIMPLE" as const,
+      compoundingFrequencyPerYear: null,
+      issueDate: new Date("2025-01-01"),
+      accrualCutoffDate: new Date("2025-07-01"),
+    };
+    const act365 = computeAccruedInterest({ ...args, dayCountConvention: "ACT_365" });
+    const act360 = computeAccruedInterest({ ...args, dayCountConvention: "ACT_360" });
+    expect(act360.accruedInterest.gt(act365.accruedInterest)).toBe(true);
+  });
+
+  it("30/360 convention: one calendar year = 360 days", () => {
+    const r = computeAccruedInterest({
+      principal: "100000",
+      annualInterestRatePercent: "8",
+      interestType: "SIMPLE",
+      compoundingFrequencyPerYear: null,
+      issueDate: new Date(Date.UTC(2025, 0, 15)),
+      accrualCutoffDate: new Date(Date.UTC(2026, 0, 15)),
+      dayCountConvention: "30_360",
+    });
+    // 30/360: 360*(2026-2025) + 30*(1-1) + (15-15) = 360
+    expect(r.daysElapsed).toBe(360);
+    expect(r.accruedInterest.toFixed(2)).toBe("8000.00");
+  });
+
+  it("30/360 convention: day > 30 is clamped (European 30E/360)", () => {
+    const r = computeAccruedInterest({
+      principal: "100000",
+      annualInterestRatePercent: "12",
+      interestType: "SIMPLE",
+      compoundingFrequencyPerYear: null,
+      issueDate: new Date(Date.UTC(2025, 0, 31)),
+      accrualCutoffDate: new Date(Date.UTC(2025, 2, 31)),
+      dayCountConvention: "30_360",
+    });
+    // 30/360: 360*(0) + 30*(3-1) + (min(30,31) - min(30,31)) = 60 days
+    expect(r.daysElapsed).toBe(60);
+  });
+
+  it("default (no convention specified) uses ACT/365", () => {
+    const r = computeAccruedInterest({
+      principal: "100000",
+      annualInterestRatePercent: "8",
+      interestType: "SIMPLE",
+      compoundingFrequencyPerYear: null,
+      issueDate: new Date("2025-01-01"),
+      accrualCutoffDate: new Date("2026-01-01"),
+    });
+    expect(r.method).toContain("ACT_365");
+    expect(r.accruedInterest.toFixed(2)).toBe("8000.00");
+  });
 });

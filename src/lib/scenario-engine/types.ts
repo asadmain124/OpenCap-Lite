@@ -120,6 +120,8 @@ export interface BaselineNote {
   status: "OUTSTANDING" | "CONVERTED" | "REPAID" | "CANCELLED";
   userSelectedMethod?: "CAP" | "DISCOUNT" | null;
   label?: string;
+  /** Defaults to "ACT_365" when omitted. */
+  dayCountConvention?: "ACT_365" | "ACT_360" | "30_360";
 }
 
 export interface NewInstrument {
