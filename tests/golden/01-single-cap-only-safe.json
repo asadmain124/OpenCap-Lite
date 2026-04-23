@@ -1,6 +1,6 @@
 {
-  "description": "YC-style worked example: one cap-only SAFE converts at a priced round. Existing 10M common. SAFE $1M @ $10M cap. Series A $2M @ $10M pre-money.",
-  "derivation": "PPS = 10M pre / 10M denom = $1.00. Cap price = $10M cap / 10M denom = $1.00. SAFE shares = 1M / $1 = 1,000,000. New money shares = 2M / $1 = 2,000,000. Final FD = 13,000,000.",
+  "description": "YC 2018 post-money SAFE worked example: one cap-only SAFE converts at a priced round. Existing 10M common. SAFE $1M @ $10M post-money cap. Series A $2M @ $10M pre-money.",
+  "derivation": "PPS = 10M pre / 10M denom = $1.00. Cap denom is self-referential per YC 2018 (includes the SAFE's own converting shares). Fixed point: D = 10M + shares, shares = 1M × D / 10M = 0.1D + 1M/10M × (denom). Solving D − 0.1D = 10M → D = 10M / 0.9 = 11,111,111.1. Cap price = 10M / 11,111,111 = $0.9000. SAFE shares = 1M / 0.9 = 1,111,111 (floor). This matches the post-money SAFE promise: 1M / 10M = 10% of post-money (1,111,111 / 11,111,111 = 10%). New money shares = 2M / $1.00 = 2,000,000. Final FD = 10,000,000 + 1,111,111 + 2,000,000 = 13,111,111.",
   "input": {
     "companyName": "Golden 01",
     "authorizedCommonShares": "100000000",
@@ -53,8 +53,9 @@
   },
   "expected": {
     "pricePerShare": "1.000000",
-    "safeSharesBySafeId": { "safe1": "1000000" },
+    "safeSharesBySafeId": { "safe1": "1111111" },
+    "safeSelectedMethodBySafeId": { "safe1": "CAP" },
     "newInvestorShares": "2000000",
-    "finalFullyDiluted": "13000000"
+    "finalFullyDiluted": "13111111"
   }
 }

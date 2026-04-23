@@ -1,6 +1,6 @@
 {
-  "description": "Three stacked SAFEs: cap-only, cap+discount, and MFN-unresolved. Existing 10M common, Series A $2M @ $10M pre-money.",
-  "derivation": "PPS = 10M / 10M = $1.00. Cap denom = 10M. SAFE A cap-only $5M → cap price $0.50 → $500K/$0.50 = 1,000,000 shares. SAFE B cap $10M + 20% discount → cap price $1.00, discount price $0.80 → picks discount → $250K/$0.80 = 312,500 shares. SAFE C MFN-only → unresolved, 0 shares. New money = $2M/$1.00 = 2,000,000. Final FD = 10M + 1M + 312.5k + 2M = 13,312,500.",
+  "description": "Three stacked post-money SAFEs: cap-only, cap+discount, and MFN. Demonstrates YC 2018 iterative denominator + MFN sibling inference. Existing 10M common, Series A $2M @ $10M pre-money.",
+  "derivation": "PPS = 10M / 10M = $1.00. SAFE C is MFN with no explicit terms → inherits best-for-investor sibling terms: cap = min(5M,10M) = 5M, discount = max(null,20%) = 20%. All three SAFEs use the YC 2018 self-referential post-money denom D = 10M + (SAFE A + B + C shares). SAFE B always picks discount ($0.80) = 312,500 shares (invariant of D since discount doesn't depend on D). SAFE A and C pick cap (5M/D < 0.80 when D > 6.25M). Fixed point: D = 10M + 500k×D/5M + 312,500 + 100k×D/5M = 10M + 0.12D + 312,500 → 0.88D = 10,312,500 → D ≈ 11,718,750. SAFE A shares = 500k × 11,718,748 / 5M = 1,171,874 (floor with iteration rounding). SAFE C shares = 100k × 11,718,748 / 5M = 234,374. Final FD = 10M + 1,171,874 + 312,500 + 234,374 + 2,000,000 = 13,718,748.",
   "input": {
     "companyName": "Golden 02",
     "authorizedCommonShares": "100000000",
@@ -80,17 +80,17 @@
   "expected": {
     "pricePerShare": "1.000000",
     "safeSharesBySafeId": {
-      "safeA": "1000000",
+      "safeA": "1171874",
       "safeB": "312500",
-      "safeC": "0"
+      "safeC": "234374"
     },
     "safeSelectedMethodBySafeId": {
       "safeA": "CAP",
       "safeB": "DISCOUNT",
-      "safeC": "UNRESOLVED_MFN"
+      "safeC": "CAP"
     },
     "newInvestorShares": "2000000",
-    "finalFullyDiluted": "13312500",
-    "warningCodes": ["MFN_UNRESOLVED"]
+    "finalFullyDiluted": "13718748",
+    "warningCodes": ["MFN_INFERRED"]
   }
 }
