@@ -1,0 +1,62 @@
+{
+  "description": "Pre-money SAFE (YC 2013) with option pool top-up. Denominator per YC 2013 'Company Capitalization' includes the new pool increase, so the SAFE holder is not diluted by the pool.",
+  "derivation": "Baseline: 10M common (no existing pool). Pre-money = $10M, new money = $2M. PPS = 10M/10M = $1.00. Projected pool top-up for pre-money-SAFE denom (interim=baseline=10M, newMoneyShares=2M, target 10%): add = (0.10 × (10M + 2M) − 0) / (1 − 0.10) = 1,333,334 (ceil). Pre-money SAFE cap denom = 10M + 1,333,334 = 11,333,334. Pre-money SAFE cap price = 10M / 11,333,334 = 0.882353. SAFE shares = 1M / 0.882353 = 1,133,333 (floor). After conversion, pool top-up is re-solved with interim = 10M + 1,133,333 = 11,133,333 → pool shares = ceil((0.10 × (11,133,333 + 2,000,000) − 0) / 0.90) = 1,459,260 (iterates). New-money shares = 2M / 1.00 = 2,000,000. Final FD = 10,000,000 + 1,133,333 + 1,459,260 + 2,000,000 = 14,592,593.",
+  "input": {
+    "companyName": "Golden 05",
+    "authorizedCommonShares": "100000000",
+    "authorizedPreferredShares": "50000000",
+    "baseline": {
+      "reservedUngrantedPool": "0",
+      "holdings": [
+        {
+          "id": "h1",
+          "stakeholderId": "s1",
+          "stakeholderName": "Founder",
+          "securityClassId": "sc1",
+          "securityClassName": "Common",
+          "securityType": "COMMON",
+          "shareCount": "10000000",
+          "status": "ACTIVE"
+        }
+      ],
+      "optionGrants": [],
+      "safes": [
+        {
+          "id": "safe1",
+          "stakeholderId": "v1",
+          "stakeholderName": "SAFE Investor",
+          "issueDate": "2025-01-01",
+          "purchaseAmount": "1000000",
+          "valuationCap": "10000000",
+          "discountPercent": null,
+          "mfn": false,
+          "postMoney": false,
+          "status": "OUTSTANDING",
+          "label": "Pre-Money SAFE"
+        }
+      ],
+      "notes": []
+    },
+    "round": {
+      "roundType": "PRICED_ROUND",
+      "preMoneyValuation": "10000000",
+      "newMoney": "2000000",
+      "roundCloseDate": "2026-06-01",
+      "optionPoolTopUpMode": "TO_TARGET_POST_MONEY_PERCENT",
+      "optionPoolTargetPercent": "0.10",
+      "capDenominatorMethod": "CURRENT_FULLY_DILUTED",
+      "preMoneyDenominatorMethod": "CURRENT_FULLY_DILUTED",
+      "conversionOrderingRule": "CONVERTIBLES_THEN_POOL_TOPUP_THEN_NEW_MONEY",
+      "notesConvertUsing": "BEST_FOR_INVESTOR",
+      "safesConvertUsing": "BEST_FOR_INVESTOR"
+    },
+    "newInstruments": []
+  },
+  "expected": {
+    "pricePerShare": "1.000000",
+    "safeSharesBySafeId": { "safe1": "1133333" },
+    "safeSelectedMethodBySafeId": { "safe1": "CAP" },
+    "newInvestorShares": "2000000",
+    "finalFullyDiluted": "14592593"
+  }
+}

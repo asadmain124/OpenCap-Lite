@@ -140,4 +140,108 @@ describe("runScenario — end-to-end", () => {
     expect(a.intermediates.pricePerShare?.toFixed(8)).toBe(b.intermediates.pricePerShare?.toFixed(8));
     expect(a.finalOwnership.length).toBe(b.finalOwnership.length);
   });
+
+  it("pre-money SAFE (YC 2013) dilutes differently than post-money SAFE (YC 2018) when pool top-up occurs", () => {
+    const makeInput = (postMoney: boolean): ScenarioInput => {
+      const input = makeSeedInput();
+      input.baseline.safes = [
+        {
+          id: "safe1",
+          stakeholderId: "vc1",
+          stakeholderName: "VC A",
+          issueDate: "2025-06-15",
+          purchaseAmount: "1000000",
+          valuationCap: "10000000",
+          discountPercent: null,
+          mfn: false,
+          postMoney,
+          status: "OUTSTANDING",
+          label: "SAFE A",
+        },
+      ];
+      input.round.optionPoolTopUpMode = "TO_TARGET_POST_MONEY_PERCENT";
+      input.round.optionPoolTargetPercent = "0.10";
+      return input;
+    };
+
+    const post = runScenario(makeInput(true));
+    const pre = runScenario(makeInput(false));
+
+    const postSafe = post.convertibleDetails.find((d) => d.instrumentId === "safe1")!;
+    const preSafe = pre.convertibleDetails.find((d) => d.instrumentId === "safe1")!;
+
+    // Pre-money SAFE (YC 2013) denominator includes the new option pool top-up
+    // (see YC 2013 §"Company Capitalization"), so its cap price is lower and the
+    // SAFE holder receives more shares — i.e., the pool dilution is absorbed by
+    // founders, not the SAFE holder. Post-money SAFE (YC 2018) denominator
+    // excludes the new top-up, so the SAFE holder IS diluted by the new pool.
+    expect(preSafe.capPrice!.lt(postSafe.capPrice!)).toBe(true);
+    expect(preSafe.sharesIssued > postSafe.sharesIssued).toBe(true);
+  });
+
+  it("SAFE with both cap and discount selects lower of the two under BEST_FOR_INVESTOR", () => {
+    const input = makeSeedInput();
+    input.baseline.safes = [
+      {
+        id: "safe1",
+        stakeholderId: "vc1",
+        stakeholderName: "VC A",
+        issueDate: "2025-06-15",
+        purchaseAmount: "500000",
+        valuationCap: "5000000",
+        discountPercent: "20",
+        mfn: false,
+        postMoney: true,
+        status: "OUTSTANDING",
+        label: "SAFE A",
+      },
+    ];
+    const r = runScenario(input);
+    const detail = r.convertibleDetails[0];
+    expect(detail.capPrice).not.toBeNull();
+    expect(detail.discountPrice).not.toBeNull();
+    // BEST_FOR_INVESTOR picks the lower price.
+    expect(detail.selectedPrice!.lte(detail.capPrice!)).toBe(true);
+    expect(detail.selectedPrice!.lte(detail.discountPrice!)).toBe(true);
+  });
+
+  it("USER_SELECTED_PER_SAFE honors per-instrument cap/discount choice", () => {
+    const input = makeSeedInput();
+    input.round.safesConvertUsing = "USER_SELECTED_PER_SAFE";
+    input.baseline.safes = [
+      {
+        id: "safe-cap",
+        stakeholderId: "vc1",
+        stakeholderName: "VC A",
+        issueDate: "2025-06-15",
+        purchaseAmount: "500000",
+        valuationCap: "20000000", // cap price > discount price
+        discountPercent: "50",
+        mfn: false,
+        postMoney: true,
+        status: "OUTSTANDING",
+        label: "SAFE Cap-picker",
+        userSelectedMethod: "CAP",
+      },
+      {
+        id: "safe-discount",
+        stakeholderId: "vc2",
+        stakeholderName: "VC B",
+        issueDate: "2025-06-15",
+        purchaseAmount: "500000",
+        valuationCap: "5000000", // cap price < discount price
+        discountPercent: "10",
+        mfn: false,
+        postMoney: true,
+        status: "OUTSTANDING",
+        label: "SAFE Discount-picker",
+        userSelectedMethod: "DISCOUNT",
+      },
+    ];
+    const r = runScenario(input);
+    const cap = r.convertibleDetails.find((d) => d.instrumentId === "safe-cap")!;
+    const disc = r.convertibleDetails.find((d) => d.instrumentId === "safe-discount")!;
+    expect(cap.selectedMethod).toBe("CAP");
+    expect(disc.selectedMethod).toBe("DISCOUNT");
+  });
 });

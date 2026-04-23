@@ -173,7 +173,8 @@ function convertSafes(
   state: WorkingState,
   safes: BaselineSAFE[],
   roundPPS: Decimal | null,
-  capDenomShares: bigint,
+  capDenomPostMoney: bigint,
+  capDenomPreMoney: bigint,
   mode: "BEST_FOR_INVESTOR" | "CAP_ONLY" | "DISCOUNT_ONLY" | "USER_SELECTED_PER_SAFE",
   details: ConvertibleDetail[],
   warnings: Warning[],
@@ -184,6 +185,9 @@ function convertSafes(
     if (s.status !== "OUTSTANDING") continue;
     const effectiveMode =
       mode === "USER_SELECTED_PER_SAFE" ? "USER_SELECTED" : mode;
+    // YC 2018 post-money SAFE: cap ÷ company capitalization (existing pool, excludes the new pool top-up).
+    // YC 2013 pre-money SAFE: cap ÷ pre-money FD including the new pool top-up.
+    const capDenomShares = s.postMoney ? capDenomPostMoney : capDenomPreMoney;
     const pricing = computeConversionPrice({
       valuationCap: s.valuationCap,
       discountPercent: s.discountPercent,
@@ -246,8 +250,9 @@ function convertSafes(
       sharesIssued: shares,
       explanation: pricing.explanation,
     });
+    const safeType = s.postMoney ? "post-money" : "pre-money";
     formulaTrace.push(
-      `SAFE ${s.label ?? s.id}: ${purchase.toFixed(2)} / ${price.toFixed(6)} = ${shares.toString()} shares (${pricing.explanation})`,
+      `SAFE ${s.label ?? s.id} (${safeType}, capDenom=${capDenomShares.toString()}): ${purchase.toFixed(2)} / ${price.toFixed(6)} = ${shares.toString()} shares (${pricing.explanation})`,
     );
   }
 }
@@ -436,7 +441,9 @@ export function runScenario(input: ScenarioInput): ScenarioResult {
   const round = input.round;
   const accrualDate = new Date(round.roundCloseDate);
 
-  // Cap denominator (for SAFE/note conversion price)
+  // Cap denominator for post-money SAFEs / notes (YC 2018 convention and notes).
+  // Evaluated before conversions run, so "CURRENT_FULLY_DILUTED" here reduces to
+  // common + preferred + options + reserved pool (existing pool, no top-up yet).
   const capDenom = computeDenominator(
     round.capDenominatorMethod,
     round.capDenominatorOverride ?? null,
@@ -468,11 +475,44 @@ export function runScenario(input: ScenarioInput): ScenarioResult {
     });
   }
 
+  // Pre-money SAFE (YC 2013) cap denominator: baseline FD plus the new option
+  // pool top-up, excluding other SAFEs / notes. Project the top-up deterministically
+  // so pre-money SAFEs price correctly regardless of conversion-ordering rule.
+  const estNewMoneyShares =
+    pricePerShare != null && pricePerShare.gt(0) && round.newMoney
+      ? BigInt(new Decimal(round.newMoney).div(pricePerShare).floor().toFixed(0))
+      : 0n;
+  const hasPreMoneySafe = input.baseline.safes.some(
+    (s) => !s.postMoney && s.status === "OUTSTANDING",
+  );
+  let projectedPoolTopUp = 0n;
+  if (hasPreMoneySafe && round.optionPoolTopUpMode !== "NONE") {
+    const projected = computePoolTopUp({
+      mode: round.optionPoolTopUpMode,
+      preMoneyFullyDiluted: baselineFD.fullyDiluted,
+      currentPoolShares: state.reservedPool,
+      interimFullyDiluted: baselineFD.fullyDiluted,
+      newMoneyShares: estNewMoneyShares,
+      targetPercent: round.optionPoolTargetPercent ?? null,
+      fixedShares: round.optionPoolFixedShares
+        ? BigInt(round.optionPoolFixedShares)
+        : null,
+      fixedPercentPreMoney: round.optionPoolFixedPercentPreMoney ?? null,
+    });
+    projectedPoolTopUp = projected.additionalShares;
+  }
+  const capDenomPreMoney = capDenom + projectedPoolTopUp;
+
   formulaTrace.push(
     `Baseline FD = ${baselineFD.fullyDiluted.toString()} (common=${baselineFD.breakdown.common}, options=${baselineFD.breakdown.options}, reserved=${baselineFD.breakdown.reserved})`,
   );
   formulaTrace.push(`Pre-money denominator (${round.preMoneyDenominatorMethod}) = ${preMoneyDenom.toString()}`);
-  formulaTrace.push(`Cap denominator (${round.capDenominatorMethod}) = ${capDenom.toString()}`);
+  formulaTrace.push(`Cap denominator post-money SAFEs = ${capDenom.toString()}`);
+  if (hasPreMoneySafe) {
+    formulaTrace.push(
+      `Cap denominator pre-money SAFEs = ${capDenomPreMoney.toString()} (includes projected pool top-up of ${projectedPoolTopUp.toString()})`,
+    );
+  }
   if (pricePerShare) {
     formulaTrace.push(`Price per share = ${pricePerShare.toFixed(6)} (${ppsResult.method})`);
   }
@@ -484,6 +524,7 @@ export function runScenario(input: ScenarioInput): ScenarioResult {
       input.baseline.safes,
       pricePerShare,
       capDenom,
+      capDenomPreMoney,
       round.safesConvertUsing,
       details,
       warnings,
