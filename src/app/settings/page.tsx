@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { SettingsClient } from "./SettingsClient";
+import { CompanyManager } from "@/components/app/CompanyManager";
 
 export default async function SettingsPage() {
   const companyId = await getPrimaryCompanyId();
@@ -53,6 +54,8 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      <CompanyManager />
 
       <SettingsClient companyId={companyId ?? null} />
 

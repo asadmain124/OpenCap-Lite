@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import Decimal from "decimal.js";
 import { ZodError } from "zod";
 import { serializeBigInts } from "@/lib/utils";
 
@@ -45,14 +46,26 @@ export function toApiError(error: unknown, fallbackStatus = 500): NextResponse<A
   );
 }
 
+function isDecimalLike(v: object): boolean {
+  if (v instanceof Decimal) return true;
+  if (v instanceof Prisma.Decimal) return true;
+  // Duck-type fallback: decimal.js / Prisma.Decimal instances have s,e,d
+  // and a toString() — survives bundler class-name mangling.
+  const obj = v as { s?: unknown; e?: unknown; d?: unknown; toString?: unknown };
+  return (
+    typeof obj.s === "number" &&
+    typeof obj.e === "number" &&
+    Array.isArray(obj.d) &&
+    typeof obj.toString === "function" &&
+    obj.toString !== Object.prototype.toString
+  );
+}
+
 function decimalToString(v: unknown): unknown {
   if (v == null) return v;
   if (typeof v !== "object") return v;
   if (v instanceof Date) return v.toISOString();
-  const ctorName = (v as { constructor?: { name?: string } }).constructor?.name;
-  if (ctorName === "Decimal" || ctorName === "Prisma.Decimal") {
-    return (v as { toString(): string }).toString();
-  }
+  if (isDecimalLike(v)) return (v as { toString(): string }).toString();
   if (Array.isArray(v)) return v.map(decimalToString);
   const out: Record<string, unknown> = {};
   for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = decimalToString(val);
