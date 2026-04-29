@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getPrimaryCompanyId } from "@/lib/company-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatDate, formatPercent } from "@/lib/formatters";
+import { EmptyStateLearn } from "@/components/help/EmptyStateLearn";
 
 export default async function NotesPage() {
   const companyId = await getPrimaryCompanyId();
@@ -19,6 +20,7 @@ export default async function NotesPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Convertible Notes</h1>
         <p className="text-sm text-muted-foreground">Debt instruments that convert at a discount or cap at the next priced round.</p>
       </div>
+      {rows.length === 0 && <EmptyStateLearn entity="note" />}
       <Card>
         <CardHeader>
           <CardTitle>{rows.length} notes</CardTitle>

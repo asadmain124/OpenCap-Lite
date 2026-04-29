@@ -170,7 +170,7 @@ model Stakeholder {
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt
 
-  company      Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   holdings     EquityHolding[]
   optionGrants OptionGrant[]
   safes        SAFEInstrument[]
@@ -192,7 +192,7 @@ model SecurityClass {
   createdAt                     DateTime      @default(now())
   updatedAt                     DateTime      @updatedAt
 
-  company  Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   holdings EquityHolding[]
 
   @@index([companyId])
@@ -216,9 +216,9 @@ model EquityHolding {
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
-  company       Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  stakeholder   Stakeholder   @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
-  securityClass SecurityClass @relation(fields: [securityClassId], references: [id], onDelete: Restrict)
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stakeholder   Stakeholder   @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  securityClass SecurityClass @relation(fields: [securityClassId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
   @@index([stakeholderId])
@@ -243,8 +243,8 @@ model OptionGrant {
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
-  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
   @@index([stakeholderId])
@@ -267,8 +267,8 @@ model SAFEInstrument {
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 
-  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
   @@index([stakeholderId])
@@ -293,8 +293,8 @@ model ConvertibleNote {
   createdAt                    DateTime     @default(now())
   updatedAt                    DateTime     @updatedAt
 
-  company     Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Restrict)
+  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stakeholder Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
   @@index([stakeholderId])
@@ -310,7 +310,7 @@ model Scenario {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  company              Company                       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company              Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   roundInput           ScenarioRoundInput?
   newInstrumentInputs  ScenarioNewInstrumentInput[]
 
@@ -369,7 +369,7 @@ model AuditLog {
   actor      String?
   createdAt  DateTime    @default(now())
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
   @@index([entityType, entityId])

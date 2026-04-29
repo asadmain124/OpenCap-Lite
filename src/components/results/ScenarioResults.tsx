@@ -8,6 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatShares, formatPercent } from "@/lib/formatters";
+import { ResultNarrative } from "./ResultNarrative";
 
 /**
  * Serialized ScenarioResult as it comes off the API: BigInt fields are
@@ -170,6 +171,9 @@ export function ScenarioResults({
           Calculating…
         </div>
       )}
+
+      {/* Plain-English narrative */}
+      <ResultNarrative result={result} />
 
       {/* Summary row */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

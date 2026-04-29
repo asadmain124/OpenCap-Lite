@@ -110,10 +110,7 @@ export function CompanyManager() {
     } catch (err) {
       toast({
         title: "Delete failed",
-        description:
-          err instanceof Error
-            ? err.message
-            : "Make sure all stakeholders, holdings, and instruments are removed first.",
+        description: err instanceof Error ? err.message : String(err),
       });
     } finally {
       setBusy(false);
@@ -221,8 +218,9 @@ export function CompanyManager() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {pendingDelete?.legalName}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes the company and all related data
-              (stakeholders, holdings, SAFEs, notes, scenarios). This cannot be
+              This permanently removes the company and{" "}
+              <strong>everything in it</strong> — stakeholders, holdings,
+              option grants, SAFEs, notes, scenarios, audit log. Cannot be
               undone.
             </AlertDialogDescription>
           </AlertDialogHeader>

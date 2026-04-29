@@ -37,6 +37,7 @@ import { DataTable, type RowAction } from "@/components/tables/DataTable";
 import { useToast } from "@/components/ui/use-toast";
 import { api } from "@/lib/api/client";
 import { formatCurrency, formatDate, formatShares } from "@/lib/formatters";
+import { HelpTip } from "@/components/help/HelpTip";
 
 const HOLDING_STATUSES = [
   "ACTIVE",
@@ -69,11 +70,13 @@ export function HoldingTable({
   rows,
   stakeholders,
   securityClasses,
+  baselineFD,
 }: {
   companyId: string | null;
   rows: Row[];
   stakeholders: Option[];
   securityClasses: Option[];
+  baselineFD: string;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -159,6 +162,7 @@ export function HoldingTable({
             initial={editing}
             stakeholders={stakeholders}
             securityClasses={securityClasses}
+            baselineFD={baselineFD}
             onClose={(refresh) => {
               setDialogOpen(false);
               setEditing(null);
@@ -224,12 +228,14 @@ function HoldingForm({
   initial,
   stakeholders,
   securityClasses,
+  baselineFD,
   onClose,
 }: {
   companyId: string | null;
   initial: Row | null;
   stakeholders: Option[];
   securityClasses: Option[];
+  baselineFD: string;
   onClose: (refresh: boolean) => void;
 }) {
   const { toast } = useToast();
@@ -322,7 +328,10 @@ function HoldingForm({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="h-sc">Security class</Label>
+            <Label htmlFor="h-sc" className="flex items-center gap-1.5">
+              Security class
+              <HelpTip term="security_class" />
+            </Label>
             <Select
               value={securityClassId}
               onValueChange={setSecurityClassId}
@@ -397,6 +406,7 @@ function HoldingForm({
               onChange={(e) => setCertificateNumber(e.target.value)}
             />
           </div>
+          <HoldingPreview baselineFD={baselineFD} shareCount={shareCount} />
         </div>
         <DialogFooter>
           <Button
@@ -413,5 +423,44 @@ function HoldingForm({
         </DialogFooter>
       </form>
     </DialogContent>
+  );
+}
+
+function HoldingPreview({
+  baselineFD,
+  shareCount,
+}: {
+  baselineFD: string;
+  shareCount: string;
+}) {
+  const fd = Number(baselineFD || "0");
+  const n = Number(shareCount || "0");
+  if (fd <= 0) return null;
+  const valid = Number.isFinite(n) && n > 0;
+  const postFD = fd + (valid ? n : 0);
+  const pct = valid && postFD > 0 ? (n / postFD) * 100 : 0;
+  return (
+    <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs">
+      <p className="text-muted-foreground">
+        Current fully-diluted:{" "}
+        <span className="font-medium tabular-nums text-foreground">
+          {formatShares(fd)}
+        </span>{" "}
+        shares
+      </p>
+      {valid && (
+        <p className="mt-1 text-muted-foreground">
+          After this issuance →{" "}
+          <span className="font-medium tabular-nums text-foreground">
+            {formatShares(postFD)}
+          </span>
+          {" · "}this holding ≈{" "}
+          <span className="font-medium tabular-nums text-foreground">
+            {pct.toFixed(2)}%
+          </span>{" "}
+          of post-issue FD
+        </p>
+      )}
+    </div>
   );
 }
