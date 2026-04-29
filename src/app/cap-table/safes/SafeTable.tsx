@@ -38,7 +38,8 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable, type RowAction } from "@/components/tables/DataTable";
 import { useToast } from "@/components/ui/use-toast";
 import { api } from "@/lib/api/client";
-import { formatCurrency, formatDate, formatPercent } from "@/lib/formatters";
+import { formatCurrency, formatDate, formatPercent, formatShares } from "@/lib/formatters";
+import { HelpTip } from "@/components/help/HelpTip";
 
 const SAFE_STATUSES = ["OUTSTANDING", "CONVERTED", "CANCELLED"] as const;
 
@@ -65,10 +66,12 @@ export function SafeTable({
   companyId,
   rows,
   stakeholders,
+  baselineFD,
 }: {
   companyId: string | null;
   rows: Row[];
   stakeholders: Option[];
+  baselineFD: string;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -165,6 +168,7 @@ export function SafeTable({
             companyId={companyId}
             initial={editing}
             stakeholders={stakeholders}
+            baselineFD={baselineFD}
             onClose={(refresh) => {
               setDialogOpen(false);
               setEditing(null);
@@ -229,11 +233,13 @@ function SafeForm({
   companyId,
   initial,
   stakeholders,
+  baselineFD,
   onClose,
 }: {
   companyId: string | null;
   initial: Row | null;
   stakeholders: Option[];
+  baselineFD: string;
   onClose: (refresh: boolean) => void;
 }) {
   const { toast } = useToast();
@@ -357,7 +363,10 @@ function SafeForm({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="s-cap">Valuation cap ($)</Label>
+              <Label htmlFor="s-cap" className="flex items-center gap-1.5">
+                Valuation cap ($)
+                <HelpTip term="valuation_cap" />
+              </Label>
               <Input
                 id="s-cap"
                 inputMode="decimal"
@@ -367,7 +376,10 @@ function SafeForm({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="s-disc">Discount (%)</Label>
+              <Label htmlFor="s-disc" className="flex items-center gap-1.5">
+                Discount (%)
+                <HelpTip term="discount" />
+              </Label>
               <Input
                 id="s-disc"
                 inputMode="decimal"
@@ -379,7 +391,10 @@ function SafeForm({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex items-center justify-between rounded-md border px-3 py-2">
-              <Label htmlFor="s-pm">Post-money</Label>
+              <Label htmlFor="s-pm" className="flex items-center gap-1.5">
+                Post-money
+                <HelpTip term="post_money" />
+              </Label>
               <Switch
                 id="s-pm"
                 checked={postMoney}
@@ -387,13 +402,19 @@ function SafeForm({
               />
             </div>
             <div className="flex items-center justify-between rounded-md border px-3 py-2">
-              <Label htmlFor="s-mfn">MFN</Label>
+              <Label htmlFor="s-mfn" className="flex items-center gap-1.5">
+                MFN
+                <HelpTip term="mfn" />
+              </Label>
               <Switch id="s-mfn" checked={mfn} onCheckedChange={setMfn} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex items-center justify-between rounded-md border px-3 py-2">
-              <Label htmlFor="s-pr">Pro-rata</Label>
+              <Label htmlFor="s-pr" className="flex items-center gap-1.5">
+                Pro-rata
+                <HelpTip term="pro_rata" />
+              </Label>
               <Switch
                 id="s-pr"
                 checked={proRataRights}
@@ -416,6 +437,12 @@ function SafeForm({
               </Select>
             </div>
           </div>
+          <SafePreview
+            baselineFD={baselineFD}
+            purchaseAmount={purchaseAmount}
+            valuationCap={valuationCap}
+            discountPercent={discountPercent}
+          />
         </div>
         <DialogFooter>
           <Button
@@ -432,5 +459,81 @@ function SafeForm({
         </DialogFooter>
       </form>
     </DialogContent>
+  );
+}
+
+function SafePreview({
+  baselineFD,
+  purchaseAmount,
+  valuationCap,
+  discountPercent,
+}: {
+  baselineFD: string;
+  purchaseAmount: string;
+  valuationCap: string;
+  discountPercent: string;
+}) {
+  const fd = Number(baselineFD || "0");
+  const amount = Number(purchaseAmount || "0");
+  const cap = Number(valuationCap || "0");
+  const disc = Number(discountPercent || "0");
+  if (fd <= 0) return null;
+
+  const lines: React.ReactNode[] = [];
+  lines.push(
+    <p key="fd" className="text-muted-foreground">
+      Current fully-diluted:{" "}
+      <span className="font-medium tabular-nums text-foreground">
+        {formatShares(fd)}
+      </span>{" "}
+      shares
+    </p>,
+  );
+
+  if (amount > 0 && cap > 0) {
+    const capPrice = cap / fd;
+    const sharesAtCap = amount / capPrice;
+    const pctAtCap = (sharesAtCap / (fd + sharesAtCap)) * 100;
+    lines.push(
+      <p key="cap" className="mt-1 text-muted-foreground">
+        At a{" "}
+        <span className="font-medium tabular-nums text-foreground">
+          {formatCurrency(cap)}
+        </span>{" "}
+        cap → ~
+        <span className="font-medium tabular-nums text-foreground">
+          {formatCurrency(capPrice, "USD", "en-US", 4)}/share
+        </span>
+        {" → ~"}
+        <span className="font-medium tabular-nums text-foreground">
+          {Math.round(sharesAtCap).toLocaleString()}
+        </span>{" "}
+        shares (~
+        <span className="font-medium tabular-nums text-foreground">
+          {pctAtCap.toFixed(2)}%
+        </span>
+        )
+      </p>,
+    );
+  }
+  if (amount > 0 && disc > 0 && cap <= 0) {
+    lines.push(
+      <p key="disc" className="mt-1 text-muted-foreground">
+        Discount-only conversion price depends on the next round&rsquo;s share
+        price; investor pays {(100 - disc).toFixed(0)}% of it.
+      </p>,
+    );
+  }
+  lines.push(
+    <p key="caveat" className="mt-1 text-[10px] italic text-muted-foreground/70">
+      Rough estimate. Use Scenarios for exact post-money math (other SAFEs,
+      pool top-ups, ordering rules).
+    </p>,
+  );
+
+  return (
+    <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs">
+      {lines}
+    </div>
   );
 }

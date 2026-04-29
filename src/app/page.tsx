@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { formatCurrency, formatShares } from "@/lib/formatters";
 import { EmptyDashboard } from "@/components/app/EmptyDashboard";
+import { OnboardingWizard } from "@/components/app/OnboardingWizard";
 
 async function loadSummary(companyId: string) {
   const company = await prisma.company.findUniqueOrThrow({
@@ -201,37 +202,38 @@ export default async function DashboardPage() {
       </Card>
 
       {isEmptyCapTable ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>This cap table is empty</CardTitle>
-            <CardDescription>
-              Add stakeholders, then issue holdings, options, SAFEs, or notes to
-              start modeling.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            <QuickAction
-              href="/cap-table/stakeholders"
-              label="Add stakeholders"
-              icon={Users}
-            />
-            <QuickAction
-              href="/cap-table/holdings"
-              label="Issue holdings"
-              icon={Layers}
-            />
-            <QuickAction
-              href="/cap-table/safes"
-              label="Add SAFE"
-              icon={Plus}
-            />
-            <QuickAction
-              href="/cap-table/notes"
-              label="Add note"
-              icon={Plus}
-            />
-          </CardContent>
-        </Card>
+        <>
+          <OnboardingWizard companyId={companyId} />
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>
+                Prefer to add things one at a time? Use these instead.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              <QuickAction
+                href="/cap-table/stakeholders"
+                label="Add stakeholder"
+                icon={Users}
+              />
+              <QuickAction
+                href="/cap-table/holdings"
+                label="Issue holding"
+                icon={Layers}
+              />
+              <QuickAction
+                href="/cap-table/safes"
+                label="Add SAFE"
+                icon={Plus}
+              />
+              <QuickAction
+                href="/cap-table/notes"
+                label="Add note"
+                icon={Plus}
+              />
+            </CardContent>
+          </Card>
+        </>
       ) : (
         <>
           <div className="flex flex-wrap gap-2">

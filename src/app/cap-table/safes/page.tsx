@@ -1,11 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { getPrimaryCompanyId } from "@/lib/company-context";
 import { Badge } from "@/components/ui/badge";
+import { EmptyStateLearn } from "@/components/help/EmptyStateLearn";
+import { computeFullyDiluted } from "@/lib/scenario-engine/fully-diluted";
 import { SafeTable } from "./SafeTable";
 
 export default async function SafesPage() {
   const companyId = await getPrimaryCompanyId();
-  const [rows, stakeholders] = companyId
+  const [rows, stakeholders, holdings, grants, classes] = companyId
     ? await Promise.all([
         prisma.sAFEInstrument.findMany({
           where: { companyId },
@@ -17,8 +19,38 @@ export default async function SafesPage() {
           orderBy: { name: "asc" },
           select: { id: true, name: true },
         }),
+        prisma.equityHolding.findMany({
+          where: { companyId },
+          select: { shareCount: true, status: true },
+        }),
+        prisma.optionGrant.findMany({
+          where: { companyId },
+          select: {
+            optionCount: true,
+            cancelledCount: true,
+            status: true,
+          },
+        }),
+        prisma.securityClass.findMany({
+          where: { companyId },
+          select: { type: true, reservedUngrantedShares: true },
+        }),
       ])
-    : [[], []];
+    : [[], [], [], [], []];
+
+  const reservedPool = classes
+    .filter((s) => s.type === "OPTION_POOL")
+    .reduce((acc, s) => acc + (s.reservedUngrantedShares ?? 0n), 0n);
+  const fd = computeFullyDiluted({
+    holdings,
+    optionGrants: grants,
+    reservedUngrantedPool: reservedPool,
+    settings: {
+      includeAllGrantedOptions: true,
+      includeCancelledGrants: false,
+      includeReservedUngranted: true,
+    },
+  });
 
   const outstanding = rows.filter((r) => r.status === "OUTSTANDING").length;
   const converted = rows.filter((r) => r.status === "CONVERTED").length;
@@ -32,8 +64,10 @@ export default async function SafesPage() {
           <Badge variant="outline">{converted}</Badge> converted
         </p>
       </div>
+      {rows.length === 0 && <EmptyStateLearn entity="safe" />}
       <SafeTable
         companyId={companyId}
+        baselineFD={fd.fullyDiluted.toString()}
         rows={rows.map((r) => ({
           id: r.id,
           stakeholderId: r.stakeholderId,

@@ -1,6 +1,6 @@
 import { getPrimaryCompanyId } from "@/lib/company-context";
 import { loadSerializedBaseline } from "@/lib/baseline";
-import { ScenarioBuilder } from "@/components/scenario/ScenarioBuilder";
+import { ScenarioWorkbench } from "@/components/scenario/ScenarioWorkbench";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default async function NewScenarioPage() {
@@ -29,7 +29,7 @@ export default async function NewScenarioPage() {
           Using {baseline.companyName}&rsquo;s current cap table as the baseline.
         </p>
       </div>
-      <ScenarioBuilder companyId={companyId} baseline={baseline} />
+      <ScenarioWorkbench companyId={companyId} baseline={baseline} />
     </div>
   );
 }
