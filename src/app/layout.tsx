@@ -12,6 +12,8 @@ export const metadata: Metadata = {
     "Open-source cap-table modeling for SAFEs, notes, and priced rounds.",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: {
