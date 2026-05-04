@@ -1,6 +1,10 @@
+import Link from "next/link";
+import { TrendingUp } from "lucide-react";
+
 import { prisma } from "@/lib/prisma";
 import { getPrimaryCompanyId } from "@/lib/company-context";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EmptyStateLearn } from "@/components/help/EmptyStateLearn";
 import { computeFullyDiluted } from "@/lib/scenario-engine/fully-diluted";
 import { SafeTable } from "./SafeTable";
@@ -57,12 +61,22 @@ export default async function SafesPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">SAFEs</h1>
-        <p className="text-sm text-muted-foreground">
-          <Badge variant="secondary">{outstanding}</Badge> outstanding ·{" "}
-          <Badge variant="outline">{converted}</Badge> converted
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">SAFEs</h1>
+          <p className="text-sm text-muted-foreground">
+            <Badge variant="secondary">{outstanding}</Badge> outstanding ·{" "}
+            <Badge variant="outline">{converted}</Badge> converted
+          </p>
+        </div>
+        {outstanding > 0 && (
+          <Button asChild>
+            <Link href="/scenarios/new">
+              <TrendingUp className="mr-1 h-4 w-4" />
+              Model conversion at next round
+            </Link>
+          </Button>
+        )}
       </div>
       {rows.length === 0 && <EmptyStateLearn entity="safe" />}
       <SafeTable
