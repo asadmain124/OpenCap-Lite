@@ -15,3 +15,13 @@ next-env.d.ts
 /prisma/migrations/*/migration_lock.toml
 !/prisma/migrations/*/migration.sql
 tsconfig.tsbuildinfo
+
+# Local Claude Code config
+.claude/
+
+# Local-only seed scripts (private cap-table data)
+/prisma/seed-*.ts
+!/prisma/seed.ts
+
+# Private CSV imports (real cap-table data)
+*.csv
