@@ -3,6 +3,7 @@ import {
   FlaskConical,
   Layers,
   Plus,
+  TrendingUp,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -200,6 +201,31 @@ export default async function DashboardPage() {
           </p>
         </CardContent>
       </Card>
+
+      {(s.safeCount > 0 || s.noteCount > 0) && (
+        <Card className="border-dashed bg-accent/30">
+          <CardHeader className="pb-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="space-y-1">
+              <CardTitle className="text-lg">
+                You have {s.safeCount + s.noteCount} convertible
+                {s.safeCount + s.noteCount === 1 ? "" : "s"} outstanding
+              </CardTitle>
+              <CardDescription>
+                {s.safeCount > 0 && `${formatCurrency(s.safeTotal)} in SAFEs`}
+                {s.safeCount > 0 && s.noteCount > 0 && " · "}
+                {s.noteCount > 0 && `${formatCurrency(s.noteTotal)} in notes`}
+                {" · model what happens at your next priced round."}
+              </CardDescription>
+            </div>
+            <Button asChild className="mt-3 sm:mt-0">
+              <Link href="/scenarios/new">
+                <TrendingUp className="mr-1 h-4 w-4" />
+                Model next round
+              </Link>
+            </Button>
+          </CardHeader>
+        </Card>
+      )}
 
       {isEmptyCapTable ? (
         <>
