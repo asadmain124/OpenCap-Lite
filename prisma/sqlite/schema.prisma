@@ -9,7 +9,8 @@
 // See PRD §7 for entity definitions and OCF alignment.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "darwin", "darwin-arm64"]
 }
 
 datasource db {
