@@ -31,11 +31,27 @@ Three ways to run OpenCap Lite, in order of zero-config friendliness:
 ### Mac desktop app
 
 Download the latest unsigned `.dmg` from the
-[releases page](https://github.com/asadmain124/opencap-lite/releases) and
-drag the app to `/Applications`. The first launch right-click → Open
-(macOS Gatekeeper warning) is one-time; after that, double-click. Data
-lives in `~/Library/Application Support/OpenCap Lite/opencap.db` —
-SQLite, no Postgres install required, no terminal.
+[releases page](https://github.com/asadmain124/opencap-lite/releases)
+(`-arm64.dmg` for Apple Silicon, `-x64.dmg` for Intel) and drag the app to
+`/Applications`.
+
+Because the build is unsigned, macOS Gatekeeper will refuse to open it
+the first time with either "damaged and can't be opened" or "cannot be
+opened because the developer cannot be verified." Strip the quarantine
+attribute once, from Terminal:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/OpenCap Lite.app"
+```
+
+Then double-click as normal. (The older "right-click → Open" trick no
+longer bypasses the "damaged" error on macOS Sonoma and later — `xattr`
+does.) Alternatively, after the first failed launch, go to **System
+Settings → Privacy & Security** and click **Open Anyway**.
+
+Data lives in `~/Library/Application Support/OpenCap Lite/opencap.db` —
+SQLite, no Postgres install required, no terminal after the one-time
+unquarantine above.
 
 ### Docker
 

@@ -82,11 +82,17 @@ function generate(input: string): string {
 }`,
   );
 
-  // 6. Trim generator binaryTargets — the SQLite build is desktop-only.
+  // 6. Force the SQLite generator to emit Prisma engines for both Mac
+  //    architectures. The desktop build runs on a single GHA host (arm64)
+  //    but ships both -arm64 and -x64 DMGs from the same `.next/standalone`
+  //    bundle, so the x64 DMG would otherwise contain only the host-arch
+  //    engine and the in-process Next server would fail to boot on Intel
+  //    Macs ("Next.js standalone server did not start at .../api/health").
   out = out.replace(
     /generator\s+client\s*\{[^}]*\}/,
     `generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "darwin", "darwin-arm64"]
 }`,
   );
 
