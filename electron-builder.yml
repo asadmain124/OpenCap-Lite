@@ -1,0 +1,62 @@
+appId: io.opencap.lite
+productName: OpenCap Lite
+copyright: Copyright (c) 2026 OpenCap Lite contributors
+
+# The packaged app bundles:
+#   - electron/dist                 compiled Electron main + start-next
+#   - .next/standalone              Next.js standalone server (built against the SQLite client)
+#   - .next/static                  Next static assets (referenced by the standalone server)
+#   - public                        static public files
+#   - prisma/sqlite/template.db     pre-migrated + pre-seeded SQLite DB
+#                                   copied to userData on first launch
+#
+# At runtime the only external command we spawn is the bundled Next server,
+# which is required-in-process. No prisma/tsx CLI calls.
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - electron/dist/**/*
+  - package.json
+  - "!**/*.{md,markdown}"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md}"
+  - "!**/node_modules/*/{test,tests,__tests__,coverage}/**"
+  - "!**/node_modules/.cache/**"
+
+extraResources:
+  - from: .next/standalone
+    to: app/.next/standalone
+  - from: .next/static
+    to: app/.next/standalone/.next/static
+  - from: public
+    to: app/.next/standalone/public
+  - from: prisma/sqlite/template.db
+    to: prisma/sqlite/template.db
+
+asar: true
+# The standalone server requires Prisma engines at runtime — extract the
+# native binaries out of the asar archive so they're loadable.
+asarUnpack:
+  - "**/node_modules/@prisma/**"
+  - "**/node_modules/.prisma/**"
+
+mac:
+  category: public.app-category.finance
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  artifactName: OpenCap-Lite-${version}-${arch}.${ext}
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  identity: null
+
+dmg:
+  title: OpenCap Lite ${version}

@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
+  "main": "electron/dist/main.js",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "pnpm db:generate && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
@@ -17,6 +18,17 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
+    "db:sync:sqlite": "tsx scripts/sync-sqlite-schema.ts",
+    "db:sync:sqlite:check": "tsx scripts/sync-sqlite-schema.ts --check",
+    "db:generate:sqlite": "prisma generate --schema=prisma/sqlite/schema.prisma",
+    "db:migrate:sqlite": "prisma migrate dev --schema=prisma/sqlite/schema.prisma",
+    "db:migrate:sqlite:deploy": "prisma migrate deploy --schema=prisma/sqlite/schema.prisma",
+    "electron:tsc": "tsc -p electron/tsconfig.json",
+    "desktop:template-db": "tsx scripts/build-template-db.ts",
+    "desktop:assets": "tsx scripts/prepare-standalone-assets.ts",
+    "desktop:build": "pnpm db:sync:sqlite && pnpm db:generate:sqlite && OPENCAP_BUILD_TARGET=electron next build && pnpm desktop:assets && pnpm electron:tsc && pnpm desktop:template-db",
+    "electron:dev": "pnpm desktop:build && electron electron/dist/main.js",
+    "desktop:dist": "pnpm desktop:build && electron-builder --mac --config electron-builder.yml",
     "e2e": "playwright test"
   },
   "prisma": {
@@ -64,6 +76,8 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "autoprefixer": "^10.4.20",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.18",
     "fast-check": "^3.23.1",
@@ -74,5 +88,15 @@
     "typescript": "^5.6.3",
     "vitest": "^2.1.5"
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "electron",
+      "electron-winstaller",
+      "prisma"
+    ]
+  }
 }

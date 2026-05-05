@@ -16,6 +16,12 @@ next-env.d.ts
 !/prisma/migrations/*/migration.sql
 tsconfig.tsbuildinfo
 
+# Electron / desktop build outputs
+electron/dist
+release
+*.dmg
+prisma/sqlite/template.db
+
 # Local Claude Code config
 .claude/
 

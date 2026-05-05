@@ -10,3 +10,8 @@ test-results
 **/*.md
 docs
 tests
+electron
+electron/dist
+release
+*.dmg
+prisma/sqlite/template.db

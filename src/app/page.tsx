@@ -1,8 +1,13 @@
 import Link from "next/link";
 import {
+  ArrowUpRight,
+  BadgeDollarSign,
+  Building2,
   FlaskConical,
   Layers,
+  LineChart,
   Plus,
+  Target,
   TrendingUp,
   Users,
   type LucideIcon,
@@ -19,6 +24,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatShares } from "@/lib/formatters";
 import { EmptyDashboard } from "@/components/app/EmptyDashboard";
 import { OnboardingWizard } from "@/components/app/OnboardingWizard";
@@ -111,18 +117,24 @@ interface StatTileProps {
   value: string;
   description?: string;
   href: string;
+  icon: LucideIcon;
 }
 
-function StatTile({ title, value, description, href }: StatTileProps) {
+function StatTile({ title, value, description, href, icon: Icon }: StatTileProps) {
   return (
     <Link
       href={href}
-      className="block rounded-lg outline-none ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="group block rounded-lg outline-none ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
-      <Card className="h-full transition-colors hover:bg-accent/40">
-        <CardHeader className="pb-2">
-          <CardDescription>{title}</CardDescription>
-          <CardTitle className="text-3xl tabular-nums">{value}</CardTitle>
+      <Card className="h-full overflow-hidden transition-colors hover:bg-accent/40">
+        <CardHeader className="flex-row items-start justify-between gap-4 pb-2">
+          <div className="space-y-1">
+            <CardDescription>{title}</CardDescription>
+            <CardTitle className="text-2xl tabular-nums">{value}</CardTitle>
+          </div>
+          <span className="rounded-md bg-muted p-2 text-muted-foreground transition-colors group-hover:bg-background group-hover:text-foreground">
+            <Icon className="h-4 w-4" />
+          </span>
         </CardHeader>
         {description && (
           <CardContent>
@@ -131,6 +143,38 @@ function StatTile({ title, value, description, href }: StatTileProps) {
         )}
       </Card>
     </Link>
+  );
+}
+
+function pct(part: bigint, total: bigint): number {
+  if (total === 0n) return 0;
+  return Number((part * 10_000n) / total) / 100;
+}
+
+function Segment({
+  label,
+  value,
+  percent,
+  className,
+}: {
+  label: string;
+  value: string;
+  percent: number;
+  className: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium tabular-nums">{value}</span>
+      </div>
+      <div className="h-2 rounded-full bg-muted">
+        <div
+          className={`h-full rounded-full ${className}`}
+          style={{ width: `${Math.max(percent, value === "0" ? 0 : 2)}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -162,48 +206,126 @@ export default async function DashboardPage() {
     s.optionsGranted === 0n &&
     s.safeCount === 0 &&
     s.noteCount === 0;
+  const commonPct = pct(s.commonShares, s.fullyDiluted);
+  const preferredPct = pct(s.preferredShares, s.fullyDiluted);
+  const optionPct = pct(s.optionsGranted + s.reservedPool, s.fullyDiluted);
+  const totalConvertibleValue = s.safeTotal + s.noteTotal;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {s.company.legalName}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {s.stakeholderCount} stakeholder{s.stakeholderCount === 1 ? "" : "s"}
-            {" · "}
-            {s.scenarioCount} scenario{s.scenarioCount === 1 ? "" : "s"}
-            {" · "}
-            {s.company.jurisdiction}
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/scenarios/new">
-            <Plus className="mr-1 h-4 w-4" />
-            New scenario
-          </Link>
-        </Button>
-      </div>
+      <section className="overflow-hidden rounded-lg border bg-card">
+        <div className="grid gap-0 lg:grid-cols-[1.4fr_0.9fr]">
+          <div className="space-y-5 p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-2">
+                <Badge variant="secondary" className="gap-1 rounded-md">
+                  <Building2 className="h-3.5 w-3.5" />
+                  {s.company.jurisdiction}
+                </Badge>
+                <div>
+                  <h1 className="text-3xl font-semibold tracking-tight">
+                    {s.company.legalName}
+                  </h1>
+                  <p className="text-sm text-muted-foreground">
+                    {s.stakeholderCount} stakeholder{s.stakeholderCount === 1 ? "" : "s"}
+                    {" · "}
+                    {s.scenarioCount} scenario{s.scenarioCount === 1 ? "" : "s"}
+                    {" · "}
+                    {s.safeCount + s.noteCount} convertible{s.safeCount + s.noteCount === 1 ? "" : "s"}
+                  </p>
+                </div>
+              </div>
+              <Button asChild>
+                <Link href="/scenarios/new">
+                  <Plus className="h-4 w-4" />
+                  New scenario
+                </Link>
+              </Button>
+            </div>
 
-      <Card className="border-primary/40">
-        <CardHeader className="pb-2">
-          <CardDescription>Fully Diluted Capitalization</CardDescription>
-          <CardTitle className="text-5xl tabular-nums">
-            {formatShares(s.fullyDiluted)}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            {formatShares(s.fdBreakdown.common)} issued ·{" "}
-            {formatShares(s.fdBreakdown.options)} granted options ·{" "}
-            {formatShares(s.fdBreakdown.reserved)} reserved pool
-          </p>
-        </CardContent>
-      </Card>
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Fully diluted capitalization
+              </p>
+              <div className="mt-1 flex flex-wrap items-end gap-x-4 gap-y-1">
+                <p className="text-5xl font-semibold tabular-nums tracking-tight">
+                  {formatShares(s.fullyDiluted)}
+                </p>
+                {totalConvertibleValue > 0 && (
+                  <p className="pb-2 text-sm text-muted-foreground">
+                    {formatCurrency(totalConvertibleValue)} outstanding convertibles
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Segment
+                label="Common"
+                value={`${commonPct.toFixed(1)}%`}
+                percent={commonPct}
+                className="bg-emerald-500"
+              />
+              <Segment
+                label="Preferred"
+                value={`${preferredPct.toFixed(1)}%`}
+                percent={preferredPct}
+                className="bg-sky-500"
+              />
+              <Segment
+                label="Options + pool"
+                value={`${optionPct.toFixed(1)}%`}
+                percent={optionPct}
+                className="bg-amber-500"
+              />
+            </div>
+          </div>
+
+          <div className="border-t bg-muted/30 p-6 lg:border-l lg:border-t-0">
+            <div className="grid h-full content-between gap-5">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium">Next best actions</p>
+                  <LineChart className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="grid gap-2">
+                  <Button asChild variant="secondary" className="justify-between">
+                    <Link href="/cap-table/ownership">
+                      View ownership
+                      <ArrowUpRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button asChild variant="secondary" className="justify-between">
+                    <Link href="/scenarios/new">
+                      Model next round
+                      <ArrowUpRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline" className="justify-between">
+                    <Link href="/cap-table/stakeholders">
+                      Add stakeholder
+                      <ArrowUpRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-md border bg-background p-4">
+                <p className="text-xs text-muted-foreground">
+                  Issued and reserved breakdown
+                </p>
+                <p className="mt-1 text-sm">
+                  {formatShares(s.fdBreakdown.common)} issued ·{" "}
+                  {formatShares(s.fdBreakdown.options)} granted options ·{" "}
+                  {formatShares(s.fdBreakdown.reserved)} reserved pool
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {(s.safeCount > 0 || s.noteCount > 0) && (
-        <Card className="border-dashed bg-accent/30">
+        <Card className="border-dashed bg-amber-50/70 text-amber-950">
           <CardHeader className="pb-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div className="space-y-1">
               <CardTitle className="text-lg">
@@ -219,7 +341,7 @@ export default async function DashboardPage() {
             </div>
             <Button asChild className="mt-3 sm:mt-0">
               <Link href="/scenarios/new">
-                <TrendingUp className="mr-1 h-4 w-4" />
+                <TrendingUp className="h-4 w-4" />
                 Model next round
               </Link>
             </Button>
@@ -296,6 +418,7 @@ export default async function DashboardPage() {
               value={formatShares(s.commonShares)}
               description="Active common holdings"
               href="/cap-table/holdings"
+              icon={Users}
             />
             {s.preferredShares > 0n && (
               <StatTile
@@ -303,6 +426,7 @@ export default async function DashboardPage() {
                 value={formatShares(s.preferredShares)}
                 description="Active preferred holdings"
                 href="/cap-table/holdings"
+                icon={Layers}
               />
             )}
             {s.optionsGranted > 0n && (
@@ -315,6 +439,7 @@ export default async function DashboardPage() {
                     : "Granted, unexercised"
                 }
                 href="/cap-table/option-grants"
+                icon={Target}
               />
             )}
             {s.safeCount > 0 && (
@@ -323,6 +448,7 @@ export default async function DashboardPage() {
                 value={`${s.safeCount} · ${formatCurrency(s.safeTotal)}`}
                 description="Click to view, edit, or convert"
                 href="/cap-table/safes"
+                icon={BadgeDollarSign}
               />
             )}
             {s.noteCount > 0 && (
@@ -331,6 +457,7 @@ export default async function DashboardPage() {
                 value={`${s.noteCount} · ${formatCurrency(s.noteTotal)}`}
                 description="Principal across active notes"
                 href="/cap-table/notes"
+                icon={BadgeDollarSign}
               />
             )}
             <StatTile
@@ -342,6 +469,7 @@ export default async function DashboardPage() {
                   : "No reserved option pool yet"
               }
               href="/cap-table/security-classes"
+              icon={Target}
             />
           </div>
         </>
