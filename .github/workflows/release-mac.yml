@@ -1,0 +1,47 @@
+name: Release macOS DMG
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop app
+        run: pnpm desktop:build
+
+      - name: Package unsigned DMG
+        # CSC_IDENTITY_AUTO_DISCOVERY=false prevents electron-builder from
+        # trying to auto-detect a signing identity on the runner. We're
+        # shipping unsigned for v1; users right-click → Open the first time.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: pnpm exec electron-builder --mac --config electron-builder.yml --publish never
+
+      - name: Upload DMG to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.dmg
+            release/*.zip
+          fail_on_unmatched_files: true

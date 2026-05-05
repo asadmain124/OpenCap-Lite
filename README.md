@@ -26,17 +26,34 @@ every calculation traceable to its inputs. MIT-licensed, $0.
 
 ## Quick start
 
+Three ways to run OpenCap Lite, in order of zero-config friendliness:
+
+### Mac desktop app
+
+Download the latest unsigned `.dmg` from the
+[releases page](https://github.com/asadmain124/opencap-lite/releases) and
+drag the app to `/Applications`. The first launch right-click → Open
+(macOS Gatekeeper warning) is one-time; after that, double-click. Data
+lives in `~/Library/Application Support/OpenCap Lite/opencap.db` —
+SQLite, no Postgres install required, no terminal.
+
 ### Docker
 
 ```bash
 cp .env.example .env
-docker compose up --build
-# first-time setup
-docker compose exec app pnpm exec prisma migrate deploy
-docker compose exec app pnpm db:seed   # loads "Acme Labs, Inc." demo
+docker compose up
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+The container auto-applies migrations and seeds the "Acme Labs, Inc."
+demo on first boot. Then open [http://localhost:3000](http://localhost:3000).
+
+To run without cloning, pull the prebuilt image directly:
+
+```bash
+docker run -p 3000:3000 \
+  -e DATABASE_URL="postgresql://user:pw@your-db:5432/opencap" \
+  ghcr.io/asadmain124/opencap-lite:latest
+```
 
 ### Local development
 
@@ -47,6 +64,15 @@ cp .env.example .env
 pnpm exec prisma migrate dev
 pnpm db:seed
 pnpm dev
+```
+
+#### Building the Mac app from source
+
+```bash
+pnpm install
+pnpm desktop:build      # builds Next standalone + compiles Electron + creates template DB
+pnpm electron:dev       # opens the app pointing at a userData SQLite file
+pnpm desktop:dist       # produces an unsigned .dmg in release/
 ```
 
 ## One-click deploy

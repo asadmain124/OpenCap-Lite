@@ -9,7 +9,12 @@
 
 import { Prisma, PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+import { isSqliteUrl, sqliteJsonExtension } from "../src/lib/prisma-extensions";
+
+const basePrisma = new PrismaClient();
+const prisma = isSqliteUrl(process.env.DATABASE_URL)
+  ? basePrisma.$extends(sqliteJsonExtension)
+  : basePrisma;
 
 const COMPANY_NAME = "Acme Labs, Inc.";
 
@@ -420,5 +425,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await basePrisma.$disconnect();
   });

@@ -16,9 +16,13 @@ services:
       retries: 10
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Default to the prebuilt image so `docker compose up` works without a
+    # local clone. To build from source instead (e.g. when iterating on
+    # Dockerfile changes), comment out `image:` and uncomment `build:`.
+    image: ghcr.io/asadmain124/opencap-lite:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     depends_on:
       db:
         condition: service_healthy
