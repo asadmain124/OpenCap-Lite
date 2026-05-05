@@ -5,8 +5,8 @@ copyright: Copyright (c) 2026 OpenCap Lite contributors
 # The packaged app bundles:
 #   - electron/dist                 compiled Electron main + start-next
 #   - .next/standalone              Next.js standalone server (built against the SQLite client)
-#   - .next/static                  Next static assets (referenced by the standalone server)
-#   - public                        static public files
+#   - .next/standalone              also contains .next/static and public after
+#                                   `pnpm desktop:assets`
 #   - prisma/sqlite/template.db     pre-migrated + pre-seeded SQLite DB
 #                                   copied to userData on first launch
 #
@@ -28,10 +28,6 @@ files:
 extraResources:
   - from: .next/standalone
     to: app/.next/standalone
-  - from: .next/static
-    to: app/.next/standalone/.next/static
-  - from: public
-    to: app/.next/standalone/public
   - from: prisma/sqlite/template.db
     to: prisma/sqlite/template.db
 
