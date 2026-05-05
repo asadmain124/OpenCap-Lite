@@ -22,9 +22,9 @@ RUN pnpm exec prisma generate
 RUN pnpm build
 
 # ---- runner ----
-# Uses the Next.js standalone output: a self-contained server.js plus a
-# minimal node_modules tree, so the runtime image is much smaller than
-# shipping the full pnpm-installed dependency graph.
+# Uses the Next.js standalone output for the server bundle. We also copy the
+# pnpm-installed node_modules tree so Prisma CLI, engines, and seed runtime
+# links resolve consistently across amd64/arm64 release builds.
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -38,17 +38,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
-# Prisma CLI + schema + migrations (used by the entrypoint to apply
-# pending migrations on each boot). The standalone trace doesn't include
-# these because they're devtime tools, so copy them explicitly.
+# Prisma CLI + schema + migrations are used by the entrypoint to apply pending
+# migrations and seed the demo company on first boot.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma/engines ./node_modules/@prisma/engines
-
-# Seed runtime: tsx executes the TypeScript seed file. Both are needed so
-# the entrypoint can self-seed the demo company on first boot.
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tsx ./node_modules/tsx
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.bin/tsx ./node_modules/.bin/tsx
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/prisma-extensions.ts ./src/lib/prisma-extensions.ts
 COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./tsconfig.json
 
